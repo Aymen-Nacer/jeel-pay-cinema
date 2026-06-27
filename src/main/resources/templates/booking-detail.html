@@ -3,7 +3,7 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head th:replace="~{fragments/layout :: head('Booking Detail')}"></head>
 <body>
-<nav th:replace="~{fragments/layout :: nav}"></nav>
+<nav th:replace="~{fragments/layout :: userNav}"></nav>
 <main>
     <p><a href="/my-bookings">&larr; My Bookings</a></p>
     <h1>Booking <span th:text="${booking.id}"></span></h1>

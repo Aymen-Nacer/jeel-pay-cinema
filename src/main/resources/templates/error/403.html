@@ -2,7 +2,7 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{fragments/layout :: head('Access Denied')}"></head>
 <body>
-<nav th:replace="~{fragments/layout :: nav-auth('/', 'Home', 'btn')}"></nav>
+<nav th:replace="~{fragments/layout :: authNav('/', 'Home', 'btn')}"></nav>
 <main class="error-page">
     <h1 class="error-code error-code--danger">403</h1>
     <h2>Access Denied</h2>

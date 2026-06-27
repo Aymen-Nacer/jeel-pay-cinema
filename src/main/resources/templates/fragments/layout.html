@@ -11,7 +11,7 @@
 </head>
 
 <!-- ── Standard user nav ────────────────────────────────────────── -->
-<nav th:fragment="nav">
+<nav th:fragment="userNav">
     <span class="brand"><a href="/">🎬 Jeel Pay Cinema</a></span>
     <span sec:authorize="isAuthenticated()"
           th:text="${#authentication.name}"
@@ -26,7 +26,7 @@
 </nav>
 
 <!-- ── Admin nav ─────────────────────────────────────────────────── -->
-<nav th:fragment="nav-admin">
+<nav th:fragment="adminNav">
     <span class="brand"><a href="/">🎬 Jeel Pay Cinema</a></span>
     <span class="nav-badge-admin">ADMIN</span>
     <a href="/" class="btn">Movies</a>
@@ -36,7 +36,7 @@
 </nav>
 
 <!-- ── Minimal auth nav (login / register pages) ─────────────────── -->
-<nav th:fragment="nav-auth(linkHref, linkLabel, linkClass)">
+<nav th:fragment="authNav(linkHref, linkLabel, linkClass)">
     <span class="brand"><a href="/">🎬 Jeel Pay Cinema</a></span>
     <a th:href="${linkHref}" th:text="${linkLabel}" th:class="${linkClass}">Log in</a>
 </nav>

@@ -3,7 +3,7 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head th:replace="~{fragments/layout :: head('Select Seat')}"></head>
 <body>
-<nav th:replace="~{fragments/layout :: nav}"></nav>
+<nav th:replace="~{fragments/layout :: userNav}"></nav>
 <main>
     <p><a th:href="@{/movies/{id}(id=${showtime.movieId})}">&larr; Back to movie</a></p>
 

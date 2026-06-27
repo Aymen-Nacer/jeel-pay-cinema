@@ -2,7 +2,7 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{fragments/layout :: head('Not Found')}"></head>
 <body>
-<nav th:replace="~{fragments/layout :: nav-auth('/', 'Home', 'btn')}"></nav>
+<nav th:replace="~{fragments/layout :: authNav('/', 'Home', 'btn')}"></nav>
 <main class="error-page">
     <h1 class="error-code">404</h1>
     <h2>Page Not Found</h2>
