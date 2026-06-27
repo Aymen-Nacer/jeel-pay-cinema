@@ -19,18 +19,31 @@ repositories {
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.flywaydb:flyway-mysql'
 	implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
 	runtimeOnly 'com.mysql:mysql-connector-j'
-	testImplementation 'org.springframework.boot:spring-boot-starter-flyway-test'
-	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
-	testImplementation 'org.springframework.boot:spring-boot-starter-session-jdbc-test'
-	testImplementation 'org.springframework.boot:spring-boot-starter-thymeleaf-test'
-	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	// Spring Boot 4 no longer pulls RestClient/TestRestTemplate support transitively into the
+	// test starter; these are required for TestRestTemplate-based end-to-end web tests.
+	testImplementation 'org.springframework.boot:spring-boot-restclient'
+	testImplementation 'org.springframework.boot:spring-boot-resttestclient'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation platform('org.testcontainers:testcontainers-bom:1.20.6')
+	testImplementation 'org.testcontainers:mysql'
+	testImplementation 'org.testcontainers:junit-jupiter'
+	// Use the shaded standalone artifact: it bundles its own Jetty, so Spring Boot's
+	// dependency management can't upgrade WireMock's Jetty out from under it.
+	testImplementation 'org.wiremock:wiremock-standalone:3.13.0'
+	// Jsoup for robust HTML parsing in integration tests (CSRF token extraction).
+	testImplementation 'org.jsoup:jsoup:1.18.3'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

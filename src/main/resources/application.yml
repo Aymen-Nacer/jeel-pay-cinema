@@ -1,9 +1,48 @@
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/cinema?allowPublicKeyRetrieval=true&useSSL=false
+    url: jdbc:mysql://localhost:3306/cinema?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
     username: root
     password: secret
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-timeout: 5000
+      maximum-pool-size: 10
 
   flyway:
     enabled: true
+    baseline-on-migrate: true
+
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: never
+      table-name: SPRING_SESSION
+    timeout: 1800s
+
+  thymeleaf:
+    cache: false
+    encoding: UTF-8
+
+  mvc:
+    hiddenmethod:
+      filter:
+        enabled: true
+
+app:
+  base-url: http://localhost:8080
+  moyasar:
+    api-url: https://api.moyasar.com/v1
+    public-key: ${MOYASAR_PUBLIC_KEY:pk_test_placeholder}
+    secret-key: ${MOYASAR_SECRET_KEY:sk_test_placeholder}
+    # Shared secret echoed back by Moyasar in webhook payloads (secret_token). Leave blank to disable verification.
+    webhook-secret: ${MOYASAR_WEBHOOK_SECRET:}
+  resend:
+    api-url: https://api.resend.com
+    api-key: ${RESEND_API_KEY:re_placeholder}
+    from: onboarding@resend.dev
+  booking:
+    seat-hold-minutes: 15
+
+logging:
+  level:
+    com.jeelpay.cinema: DEBUG
