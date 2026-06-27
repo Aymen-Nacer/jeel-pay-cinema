@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    hikari:
+      connection-timeout: 30000
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: never
+  flyway:
+    baseline-on-migrate: false
+
+app:
+  booking:
+    seat-hold-minutes: 15
+  moyasar:
+    public-key: pk_test_dummy
+    secret-key: sk_test_dummy
+  resend:
+    api-key: re_dummy
+    from: test@test.com
+  base-url: http://localhost:8080

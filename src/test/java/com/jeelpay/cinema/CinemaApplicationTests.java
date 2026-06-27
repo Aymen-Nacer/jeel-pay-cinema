@@ -1,13 +1,11 @@
 package com.jeelpay.cinema;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class CinemaApplicationTests {
+class CinemaApplicationTests extends AbstractIntegrationTest {
 
-	@Test
-	void contextLoads() {
-	}
-
+    @Test
+    void contextLoads() {
+        // Verifies the Spring context starts successfully with Testcontainer MySQL
+    }
 }
