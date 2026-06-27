@@ -54,7 +54,7 @@ Tests use **Testcontainers** (real MySQL spun per suite) and **WireMock** (Moyas
 ./gradlew test
 ```
 
-> **Spring Boot 4 note:** `TestRestTemplate` moved to `org.springframework.boot.resttestclient` and is no longer pulled in transitively, so the test classpath explicitly depends on `spring-boot-restclient` + `spring-boot-resttestclient`, and the integration base class is annotated `@AutoConfigureTestRestTemplate`.
+> **Spring Boot 4 note:** `TestRestTemplate` moved to `org.springframework.boot.resttestclient` and is no longer pulled in transitively, so the test classpath explicitly depends on `spring-boot-restclient` + `spring-boot-resttestclient`, and the integration base class is annotated `@AutoConfigureTestRestTemplate`. This `TestRestTemplate` follows 3xx redirects by default; the integration base class disables redirect following so session-based login tests can observe the raw `302` (and its freshly issued authenticated `SESSION` cookie) and so `POST`-then-redirect flows like `/book` can assert the redirect to Moyasar directly.
 
 ---
 

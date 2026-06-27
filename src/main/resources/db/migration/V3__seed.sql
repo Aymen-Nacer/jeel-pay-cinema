@@ -7,7 +7,7 @@
 -- ── Admin user ────────────────────────────────────────────────────────────────
 INSERT INTO users (email, password_hash, role)
 VALUES ('admin@jeelpay.com',
-        '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIvi',
+        '$2a$10$qSveaJc6RN7VrJyPY6ZRVeBI/tEYhK876dhuNp3g/ammlfytsUkiG',
         'ADMIN');
 
 -- ── 10 Movies (TMDB) ─────────────────────────────────────────────────────────

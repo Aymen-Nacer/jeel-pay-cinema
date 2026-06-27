@@ -3,13 +3,19 @@ package com.jeelpay.cinema;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
+
+import java.io.IOException;
+import java.net.HttpURLConnection;
 
 /**
  * Shared base for all integration tests.
@@ -92,6 +98,39 @@ public abstract class AbstractIntegrationTest {
     @BeforeEach
     void resetWireMock() {
         WireMock.reset();
+    }
+
+    // ── HTTP client redirect handling ─────────────────────────────────────────────
+
+    @Autowired(required = false)
+    TestRestTemplate testRestTemplate;
+
+    /**
+     * Force the shared {@link TestRestTemplate} to NOT follow redirects.
+     *
+     * The Spring Boot 4 {@code TestRestTemplate} follows 3xx redirects by default.
+     * That breaks session-based login assertions over HTTP: the {@code Set-Cookie}
+     * carrying the freshly issued (authenticated) session id is set on the {@code 302}
+     * response from {@code POST /login}, but when the client transparently follows the
+     * redirect, the test only sees the headers of the final {@code 200} page and the
+     * authenticated session cookie is lost — every subsequent request then behaves as
+     * if unauthenticated. Disabling redirect following lets tests observe the raw
+     * {@code 302} (and its cookie), and lets {@code POST}-then-redirect flows such as
+     * {@code /book} assert the {@code 302} to the Moyasar payment page directly.
+     */
+    @BeforeEach
+    void disableRedirectFollowing() {
+        if (testRestTemplate != null) {
+            var factory = new SimpleClientHttpRequestFactory() {
+                @Override
+                protected void prepareConnection(HttpURLConnection connection, String httpMethod)
+                        throws IOException {
+                    super.prepareConnection(connection, httpMethod);
+                    connection.setInstanceFollowRedirects(false);
+                }
+            };
+            testRestTemplate.getRestTemplate().setRequestFactory(factory);
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
