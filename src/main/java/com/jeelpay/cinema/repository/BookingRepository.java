@@ -43,10 +43,6 @@ public class BookingRepository {
         return b;
     };
 
-    /**
-     * Aggregates all seat labels for the booking via GROUP_CONCAT so that
-     * multi-seat bookings are loaded in a single query.
-     */
     private static final String FULL_SELECT = """
             SELECT b.*,
                    GROUP_CONCAT(s.row_label, s.seat_number ORDER BY s.row_label, s.seat_number SEPARATOR ', ') AS seat_labels,
@@ -65,8 +61,8 @@ public class BookingRepository {
 
     private static final String FULL_GROUP_BY = """
              GROUP BY b.id, b.user_id, b.showtime_id, b.seat_id, b.status,
-                      b.total_amount, b.moyasar_payment_id, b.reminder_sent,
-                      b.created_at, b.updated_at,
+                      b.total_amount, b.moyasar_payment_id,
+                      b.reminder_sent, b.created_at, b.updated_at,
                       m.title, h.name, st.start_time, u.email
             """;
 
@@ -74,15 +70,10 @@ public class BookingRepository {
         this.jdbc = jdbc;
     }
 
-    /**
-     * Insert a new booking with a server-generated UUID primary key and link
-     * its seats in the booking_seats junction table.
-     */
     public Booking save(Booking booking) {
         String id = UUID.randomUUID().toString();
         booking.setId(id);
 
-        // Use the first seatId as the legacy seat_id column (nullable for old rows).
         Long primarySeatId = !booking.getSeatIds().isEmpty() ? booking.getSeatIds().get(0) : booking.getSeatId();
         booking.setSeatId(primarySeatId);
 
@@ -99,7 +90,6 @@ public class BookingRepository {
                 VALUES (:id, :userId, :showtimeId, :seatId, :status, :totalAmount)
                 """, params);
 
-        // Insert all seats into the junction table.
         for (Long seatId : booking.getSeatIds()) {
             var sp = new MapSqlParameterSource()
                     .addValue("bookingId", id)
@@ -181,10 +171,6 @@ public class BookingRepository {
                 params);
     }
 
-    /**
-     * Atomically save the Moyasar payment ID and transition the booking from
-     * PENDING to CONFIRMED. Returns the number of rows updated (1 = success, 0 = already transitioned).
-     */
     public int confirmIfPending(String id, String moyasarPaymentId) {
         var params = new MapSqlParameterSource()
                 .addValue("id", id)
@@ -194,11 +180,6 @@ public class BookingRepository {
                 params);
     }
 
-    /**
-     * Step 1 of the refund workflow: atomically move CONFIRMED → REFUND_PENDING.
-     * Fast, safe, and does NOT release the seats yet. Returns 1 if the row was
-     * claimed for refunding, 0 if it was already in another state.
-     */
     public int markRefundPending(String id) {
         var params = new MapSqlParameterSource("id", id);
         return jdbc.update(
@@ -206,10 +187,6 @@ public class BookingRepository {
                 params);
     }
 
-    /**
-     * Step 3 (success) of the refund workflow: atomically move REFUND_PENDING → CANCELLED.
-     * Returns 1 if updated, 0 if the row was no longer REFUND_PENDING.
-     */
     public int cancelIfRefundPending(String id) {
         var params = new MapSqlParameterSource("id", id);
         return jdbc.update(
@@ -217,10 +194,6 @@ public class BookingRepository {
                 params);
     }
 
-    /**
-     * Step 3 (failure) of the refund workflow: the money never left, so revert
-     * REFUND_PENDING → CONFIRMED. Returns 1 if reverted, 0 otherwise.
-     */
     public int revertRefundPendingToConfirmed(String id) {
         var params = new MapSqlParameterSource("id", id);
         return jdbc.update(
@@ -228,10 +201,6 @@ public class BookingRepository {
                 params);
     }
 
-    /**
-     * Reconciliation: find bookings stuck in REFUND_PENDING for longer than the
-     * given grace window (e.g. the DB crashed after Moyasar succeeded).
-     */
     public List<Booking> findStuckRefundPendingBookings(int olderThanMinutes) {
         var params = new MapSqlParameterSource("minutes", olderThanMinutes);
         List<Booking> bookings = jdbc.query(FULL_SELECT + """
@@ -242,9 +211,6 @@ public class BookingRepository {
         return bookings;
     }
 
-    /**
-     * Save the Moyasar payment ID on a booking (Tx1.5 after payment creation).
-     */
     public void saveMoyasarId(String bookingId, String moyasarPaymentId) {
         var params = new MapSqlParameterSource()
                 .addValue("id", bookingId)
@@ -254,10 +220,16 @@ public class BookingRepository {
                 params);
     }
 
-    /**
-     * Atomically mark a CANCELLED booking as REFUNDED_LATE_PAYMENT.
-     * Returns 1 if updated, 0 if the booking was already in another state.
-     */
+    public Optional<Booking> findByPaymentId(String moyasarPaymentId) {
+        var params = new MapSqlParameterSource("paymentId", moyasarPaymentId);
+        var list = jdbc.query(
+                FULL_SELECT + " WHERE b.moyasar_payment_id = :paymentId" + FULL_GROUP_BY,
+                params, FULL_ROW_MAPPER);
+        Optional<Booking> result = list.stream().findFirst();
+        result.ifPresent(b -> b.setSeatIds(findSeatIdsByBookingId(b.getId())));
+        return result;
+    }
+
     public int markRefundedLatePayment(String id) {
         var params = new MapSqlParameterSource("id", id);
         return jdbc.update(
@@ -265,9 +237,6 @@ public class BookingRepository {
                 params);
     }
 
-    /**
-     * Find CONFIRMED bookings for today (Asia/Riyadh) that haven't received a reminder.
-     */
     public List<Booking> findConfirmedBookingsForReminderOn(LocalDate date) {
         var params = new MapSqlParameterSource("date", date.toString());
         List<Booking> bookings = jdbc.query(
@@ -285,9 +254,6 @@ public class BookingRepository {
         jdbc.update("UPDATE bookings SET reminder_sent = TRUE WHERE id = :id", params);
     }
 
-    /**
-     * Find PENDING bookings older than the hold window (for expiry cleanup).
-     */
     public List<Booking> findExpiredPendingBookings(int holdMinutes) {
         var params = new MapSqlParameterSource("minutes", holdMinutes);
         List<Booking> bookings = jdbc.query(FULL_SELECT + """
@@ -297,8 +263,6 @@ public class BookingRepository {
         bookings.forEach(b -> b.setSeatIds(findSeatIdsByBookingId(b.getId())));
         return bookings;
     }
-
-    // ── Helpers ──────────────────────────────────────────────────────────────
 
     private List<Long> findSeatIdsByBookingId(String bookingId) {
         var params = new MapSqlParameterSource("bookingId", bookingId);

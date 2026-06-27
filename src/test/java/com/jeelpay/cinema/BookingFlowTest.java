@@ -20,32 +20,6 @@ import java.util.concurrent.TimeUnit;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * End-to-end booking flow tests.
- *
- * The full Spring context runs against a real MySQL Testcontainer.
- * Moyasar and Resend are stubbed with WireMock (Docker container).
- *
- * <h3>Design decisions</h3>
- * <ul>
- *   <li><b>Self-contained data</b>: every test calls {@link TestDataFactory} to
- *       create its own movie/hall/showtime/seats instead of relying on hardcoded
- *       Flyway-seeded IDs (the "Mystery Guest" anti-pattern).</li>
- *   <li><b>CSRF/cookie extraction</b>: delegated to {@link TestHttpHelper} which
- *       uses Jsoup DOM parsing — robust against any cosmetic template changes.</li>
- *   <li><b>Email side-effect verification</b>: WireMock assertions confirm that
- *       the application actually called the Resend API, not just that the booking
- *       status changed in the DB.</li>
- * </ul>
- *
- * Coverage:
- *   1. HTTP-level end-to-end: register → login → POST /book → assert DB (PENDING + HELD)
- *   2. Successful payment: service-level confirm → CONFIRMED + BOOKED + Resend call verified
- *   3. Declined payment: seat is released
- *   4. Idempotent confirmation: double-confirm is a no-op
- *   5. Admin cancellation: seat returns to AVAILABLE
- *   6. Idempotent cancellation
- */
 class BookingFlowTest extends AbstractIntegrationTest {
 
     @Autowired TestRestTemplate restTemplate;
@@ -60,23 +34,11 @@ class BookingFlowTest extends AbstractIntegrationTest {
         WireMockStubs.stubResendEmail();
     }
 
-    // ── HTTP-level end-to-end test ───────────────────────────────────────────────
-
-    /**
-     * Proves the complete booking entry point through the real HTTP stack:
-     * <ol>
-     *   <li>Register a user</li>
-     *   <li>Authenticate via form login (TestRestTemplate + session cookie)</li>
-     *   <li>POST /showtimes/{id}/book — creates a PENDING booking</li>
-     *   <li>Assert {@code Booking.status == PENDING} in the database</li>
-     *   <li>Assert {@code ShowtimeSeat.status == HELD} (concurrency guard active)</li>
-     * </ol>
-     */
     @Test
     void httpEndToEnd_postBook_createsPendingBookingAndHoldsSeat() {
         var ctx = testDataFactory.createShowtimeWithSeats(4, 8);
         long showtimeId = ctx.showtimeId();
-        String seat = ctx.firstSeat();   // "A1"
+        String seat = ctx.firstSeat();
 
         var user = userService.register("e2e-http@test.com", "password123");
 
@@ -84,12 +46,10 @@ class BookingFlowTest extends AbstractIntegrationTest {
         WireMockStubs.stubMoyasarCreatePayment(paymentId,
                 "https://moyasar.test/pay/" + paymentId);
 
-        // Step 1 – Authenticate.
         String session = TestHttpHelper.loginAndGetSessionCookie(
                 restTemplate, baseUrl(), "e2e-http@test.com", "password123");
         assertThat(session).as("Form login must create an authenticated session").isNotNull();
 
-        // Step 2 – Fetch the showtime page to get the CSRF token (session may refresh).
         HttpHeaders getHeaders = new HttpHeaders();
         getHeaders.add("Cookie", "SESSION=" + session);
         ResponseEntity<String> showtimePage = restTemplate.exchange(
@@ -100,13 +60,17 @@ class BookingFlowTest extends AbstractIntegrationTest {
         String refreshedSession = TestHttpHelper.extractCookie(showtimePage.getHeaders(), "SESSION");
         if (refreshedSession != null) session = refreshedSession;
 
-        // Step 3 – POST /showtimes/{id}/book with one seat number.
         HttpHeaders postHeaders = new HttpHeaders();
         postHeaders.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
         postHeaders.add("Cookie", "SESSION=" + session);
 
         var form = new org.springframework.util.LinkedMultiValueMap<String, String>();
         form.add("seatNumbers", seat);
+        form.add("cardName", "John Doe");
+        form.add("cardNumber", "4111111111111111");
+        form.add("cardMonth", "12");
+        form.add("cardYear", "2026");
+        form.add("cardCvc", "911");
         form.add("_csrf", csrf);
 
         ResponseEntity<String> resp = restTemplate.exchange(
@@ -117,13 +81,11 @@ class BookingFlowTest extends AbstractIntegrationTest {
                 .as("POST /book must return 302 (redirect to Moyasar payment page)")
                 .isEqualTo(302);
 
-        // Assert 1: booking is PENDING in the database.
         var bookings = bookingRepository.findByUserId(user.getId());
         assertThat(bookings).as("Exactly one booking must have been created").hasSize(1);
         var booking = bookings.get(0);
         assertThat(booking.getStatus()).isEqualTo(BookingStatus.PENDING);
 
-        // Assert 2: seat is HELD in showtime_seats.
         var allSeats = showtimeSeatRepository.findByShowtimeId(showtimeId);
         var heldSeat = allSeats.stream()
                 .filter(s -> seat.equals(s.getSeatNumber()) && s.getStatus() == SeatStatus.HELD)
@@ -134,16 +96,6 @@ class BookingFlowTest extends AbstractIntegrationTest {
                 .isEqualTo(booking.getId());
     }
 
-    // ── Successful payment ───────────────────────────────────────────────────────
-
-    /**
-     * Confirms a booking via the service layer and asserts three things:
-     * <ol>
-     *   <li>{@code Booking.status} transitions to {@code CONFIRMED}</li>
-     *   <li>{@code ShowtimeSeat.status} transitions to {@code BOOKED}</li>
-     *   <li>A POST to Resend was made — proves the email side-effect fired</li>
-     * </ol>
-     */
     @Test
     void successfulPayment_confirmsBookingAndSeatAndSendsEmail() {
         var ctx = testDataFactory.createShowtimeWithSeats(3, 8);
@@ -153,15 +105,12 @@ class BookingFlowTest extends AbstractIntegrationTest {
         var booking = bookingService.createPendingBooking(ctx.showtimeId(), List.of(ctx.seat(0)), user.getId());
         assertThat(booking.getStatus()).isEqualTo(BookingStatus.PENDING);
 
-        WireMockStubs.stubMoyasarGetPaymentPaid(paymentId, 4500L);
-        bookingService.confirmPayment(booking.getId(), paymentId);
+        WireMockStubs.confirmBookingViaPaidPayment(bookingService, booking, paymentId, 4500L);
 
-        // Assert 1: booking confirmed.
         var confirmed = bookingRepository.findById(booking.getId()).orElseThrow();
         assertThat(confirmed.getStatus()).isEqualTo(BookingStatus.CONFIRMED);
         assertThat(confirmed.getMoyasarPaymentId()).isEqualTo(paymentId);
 
-        // Assert 2: seat is BOOKED — proves the physical concurrency guard is wired end-to-end.
         var bookedSeat = showtimeSeatRepository.findByShowtimeId(ctx.showtimeId()).stream()
                 .filter(s -> booking.getId().equals(s.getBookingId()))
                 .findFirst();
@@ -170,16 +119,12 @@ class BookingFlowTest extends AbstractIntegrationTest {
                 .as("Seat must be BOOKED in showtime_seats after payment confirmation")
                 .isEqualTo(SeatStatus.BOOKED);
 
-        // Assert 3: email side-effect — WireMock confirms the HTTP call to Resend actually happened.
-        // The email listener is @Async, so Awaitility gives it up to 5 s to complete.
         Awaitility.await()
                 .atMost(5, TimeUnit.SECONDS)
                 .untilAsserted(() ->
                         verify(postRequestedFor(urlPathEqualTo("/resend/emails"))
                                 .withRequestBody(containing("Booking Confirmed"))));
     }
-
-    // ── Declined payment ─────────────────────────────────────────────────────────
 
     @Test
     void declinedPayment_releasesBookingAndSeat() {
@@ -189,18 +134,18 @@ class BookingFlowTest extends AbstractIntegrationTest {
 
         var booking = bookingService.createPendingBooking(ctx.showtimeId(), List.of(ctx.seat(1)), user.getId());
 
+        WireMockStubs.stubMoyasarCreatePayment(paymentId, "https://moyasar.test/pay/" + paymentId);
+        bookingService.initiatePayment(booking, WireMockStubs.TEST_CARD);
         WireMockStubs.stubMoyasarGetPaymentFailed(paymentId);
 
         org.junit.jupiter.api.Assertions.assertThrows(
                 com.jeelpay.cinema.integration.moyasar.MoyasarException.class,
-                () -> bookingService.confirmPayment(booking.getId(), paymentId)
+                () -> bookingService.confirmPayment(booking.getId())
         );
 
         var released = bookingRepository.findById(booking.getId()).orElseThrow();
         assertThat(released.getStatus()).isIn(BookingStatus.CANCELLED, BookingStatus.PENDING);
     }
-
-    // ── Idempotency: duplicate confirmation ──────────────────────────────────────
 
     @Test
     void duplicateConfirmation_isIdempotent() {
@@ -210,25 +155,14 @@ class BookingFlowTest extends AbstractIntegrationTest {
 
         var booking = bookingService.createPendingBooking(ctx.showtimeId(), List.of(ctx.seat(2)), user.getId());
 
-        WireMockStubs.stubMoyasarGetPaymentPaid(paymentId, 4500L);
-        bookingService.confirmPayment(booking.getId(), paymentId);
-        // Second call must not throw and must not double-book.
-        bookingService.confirmPayment(booking.getId(), paymentId);
+        WireMockStubs.confirmBookingViaPaidPayment(bookingService, booking, paymentId, 4500L);
+        bookingService.confirmPayment(booking.getId());
 
         var b = bookingRepository.findById(booking.getId()).orElseThrow();
         assertThat(b.getStatus()).isEqualTo(BookingStatus.CONFIRMED);
         assertThat(b.getMoyasarPaymentId()).isEqualTo(paymentId);
     }
 
-    // ── Admin cancellation ───────────────────────────────────────────────────────
-
-    /**
-     * Confirms a booking, cancels it as admin, and asserts:
-     * <ol>
-     *   <li>{@code Booking.status == CANCELLED}</li>
-     *   <li>{@code ShowtimeSeat.status == AVAILABLE} (seat returned to pool)</li>
-     * </ol>
-     */
     @Test
     void adminCancelConfirmedBooking_refundsAndReleaseSeat() {
         var ctx = testDataFactory.createShowtimeWithSeats(3, 8);
@@ -237,17 +171,14 @@ class BookingFlowTest extends AbstractIntegrationTest {
         String seatLabel = ctx.seat(4);
 
         var booking = bookingService.createPendingBooking(ctx.showtimeId(), List.of(seatLabel), user.getId());
-        WireMockStubs.stubMoyasarGetPaymentPaid(paymentId, 4500L);
-        bookingService.confirmPayment(booking.getId(), paymentId);
+        WireMockStubs.confirmBookingViaPaidPayment(bookingService, booking, paymentId, 4500L);
 
         WireMockStubs.stubMoyasarRefund(paymentId);
         bookingService.cancelBooking(booking.getId());
 
-        // Assert 1: booking cancelled.
         var cancelled = bookingRepository.findById(booking.getId()).orElseThrow();
         assertThat(cancelled.getStatus()).isEqualTo(BookingStatus.CANCELLED);
 
-        // Assert 2: seat returned to AVAILABLE.
         var seat = showtimeSeatRepository.findByShowtimeId(ctx.showtimeId()).stream()
                 .filter(s -> seatLabel.equals(s.getSeatNumber()))
                 .findFirst();
@@ -264,12 +195,10 @@ class BookingFlowTest extends AbstractIntegrationTest {
         String paymentId = "pay-idem-cancel-" + UUID.randomUUID();
 
         var booking = bookingService.createPendingBooking(ctx.showtimeId(), List.of(ctx.seat(5)), user.getId());
-        WireMockStubs.stubMoyasarGetPaymentPaid(paymentId, 4500L);
-        bookingService.confirmPayment(booking.getId(), paymentId);
+        WireMockStubs.confirmBookingViaPaidPayment(bookingService, booking, paymentId, 4500L);
 
         WireMockStubs.stubMoyasarRefund(paymentId);
         bookingService.cancelBooking(booking.getId());
-        // Second cancel must not throw.
         bookingService.cancelBooking(booking.getId());
 
         var b = bookingRepository.findById(booking.getId()).orElseThrow();

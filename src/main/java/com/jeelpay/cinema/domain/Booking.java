@@ -10,18 +10,16 @@ public class Booking {
     private String id;
     private Long userId;
     private Long showtimeId;
-    private Long seatId;           // kept for backward compat; use seatIds for new bookings
+    private Long seatId;
     private BookingStatus status;
     private BigDecimal totalAmount;
     private String moyasarPaymentId;
     private boolean reminderSent;
     private LocalDateTime createdAt;
 
-    // Multiple seat IDs for multi-seat bookings
     private List<Long> seatIds = new ArrayList<>();
 
-    // Joined display fields
-    private String seatNumber;        // comma-separated labels, e.g. "A1, A2"
+    private String seatNumber;
     private String movieTitle;
     private String hallName;
     private LocalDateTime showtimeStart;
@@ -74,6 +72,5 @@ public class Booking {
     public String getUserEmail() { return userEmail; }
     public void setUserEmail(String userEmail) { this.userEmail = userEmail; }
 
-    /** Number of seats in this booking. */
     public int getSeatCount() { return seatIds.isEmpty() ? (seatId != null ? 1 : 0) : seatIds.size(); }
 }

@@ -12,26 +12,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
-/**
- * Self-contained test-data builder.
- *
- * <h3>Why this class exists — the Mystery Guest problem</h3>
- * Using hardcoded IDs like {@code SHOWTIME_ID = 1L} creates an invisible dependency
- * on Flyway seed data (V3/V4 migrations). Any future change to those scripts —
- * re-ordering inserts, removing a showtime, changing seat layout — silently breaks
- * tests that assume specific IDs exist. This is the "Mystery Guest" anti-pattern:
- * the test's pre-condition lives somewhere the reader cannot see.
- *
- * <h3>Solution</h3>
- * Every test that needs a showtime calls {@link #createShowtimeWithSeats} to build
- * its own movie → hall → showtime → seats → showtime_seats chain inside the test
- * transaction. The test is then fully self-contained: it creates what it needs,
- * uses the returned IDs, and does not rely on any external seed data.
- *
- * <p>This is a Spring {@link Component} so it can be {@code @Autowired} into any
- * integration test. Because it lives in {@code src/test}, it is never included in
- * the production jar.</p>
- */
+/** Builds isolated showtime data in tests instead of relying on Flyway seed IDs. */
 @Component
 public class TestDataFactory {
 
@@ -41,20 +22,6 @@ public class TestDataFactory {
         this.jdbc = jdbc;
     }
 
-    // ── Public API ───────────────────────────────────────────────────────────────
-
-    /**
-     * Creates an isolated showtime together with all required supporting data:
-     * a unique movie, a unique hall, physical seat rows, and per-showtime
-     * {@code showtime_seats} rows (all {@code AVAILABLE}).
-     *
-     * <p>The returned {@link ShowtimeContext} carries the generated showtime ID and
-     * the list of seat labels (e.g. {@code ["A1","A2","B1"]}) so tests can reference
-     * concrete seats without guessing.</p>
-     *
-     * @param rows        number of seat rows (row A = 1, row B = 2, …)
-     * @param seatsPerRow number of seats per row
-     */
     public ShowtimeContext createShowtimeWithSeats(int rows, int seatsPerRow) {
         long movieId    = insertMovie();
         long hallId     = insertHall(rows, seatsPerRow);
@@ -62,8 +29,6 @@ public class TestDataFactory {
         List<String> seatLabels = insertSeatsAndShowtimeSeats(hallId, showtimeId, rows, seatsPerRow);
         return new ShowtimeContext(showtimeId, seatLabels);
     }
-
-    // ── Private insert helpers ───────────────────────────────────────────────────
 
     private long insertMovie() {
         var params = new MapSqlParameterSource()
@@ -112,15 +77,6 @@ public class TestDataFactory {
         return key.getKey().longValue();
     }
 
-    /**
-     * Creates physical {@code seats} rows for the hall and links each one to the
-     * showtime via {@code showtime_seats} (status = AVAILABLE, version = 0).
-     *
-     * Row labels follow the same convention as the stored procedure in V4:
-     * row 1 → 'A', row 2 → 'B', etc.
-     *
-     * @return ordered list of seat labels, e.g. {@code ["A1","A2","B1","B2"]}
-     */
     private List<String> insertSeatsAndShowtimeSeats(
             long hallId, long showtimeId, int rows, int seatsPerRow) {
 
@@ -159,22 +115,12 @@ public class TestDataFactory {
         return labels;
     }
 
-    // ── Value object ─────────────────────────────────────────────────────────────
-
-    /**
-     * Holds the identifiers returned by {@link #createShowtimeWithSeats}.
-     *
-     * @param showtimeId  the generated showtime ID — use this instead of {@code 1L}
-     * @param seatLabels  all seat labels in row-then-column order (e.g. "A1", "A2")
-     */
     public record ShowtimeContext(long showtimeId, List<String> seatLabels) {
 
-        /** Returns the first seat label in the hall, e.g. "A1". */
         public String firstSeat() {
             return seatLabels.get(0);
         }
 
-        /** Returns the seat label at a given zero-based index. */
         public String seat(int index) {
             return seatLabels.get(index);
         }

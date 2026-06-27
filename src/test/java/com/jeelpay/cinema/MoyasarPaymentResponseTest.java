@@ -7,11 +7,6 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Pure unit test (no Spring/Docker) for the payment-correctness decisions encoded in the
- * Moyasar response model: only "paid" counts as paid, and the hosted page URL is read from
- * the nested source object.
- */
 class MoyasarPaymentResponseTest {
 
     @Test

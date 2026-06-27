@@ -20,10 +20,8 @@ Create a `.env` file in the project root or export these before running:
 MOYASAR_PUBLIC_KEY=pk_test_...
 MOYASAR_SECRET_KEY=sk_test_...
 RESEND_API_KEY=re_...
-# Optional: shared secret echoed back by Moyasar webhooks (secret_token).
-# If unset, webhook signature verification is disabled (fine for local/dev).
-MOYASAR_WEBHOOK_SECRET=
 ```
+There will be .env file containing these keys in the sent zip file which contain the repository.
 
 ### Run with Docker Compose
 
@@ -33,18 +31,6 @@ docker compose up --build
 
 The app starts at **[http://localhost:8080](http://localhost:8080)**.
 
-### Run Locally (with Docker MySQL)
-
-```bash
-# Start only the database
-docker compose up db -d
-
-# Run the app
-./gradlew bootRun \
-  -Dapp.moyasar.secret-key=sk_test_... \
-  -Dapp.moyasar.public-key=pk_test_... \
-  -Dapp.resend.api-key=re_...
-```
 
 ### Run Tests
 
@@ -53,8 +39,6 @@ Tests use **Testcontainers** (real MySQL spun per suite) and **WireMock** (Moyas
 ```bash
 ./gradlew test
 ```
-
-> **Spring Boot 4 note:** `TestRestTemplate` moved to `org.springframework.boot.resttestclient` and is no longer pulled in transitively, so the test classpath explicitly depends on `spring-boot-restclient` + `spring-boot-resttestclient`, and the integration base class is annotated `@AutoConfigureTestRestTemplate`. This `TestRestTemplate` follows 3xx redirects by default; the integration base class disables redirect following so session-based login tests can observe the raw `302` (and its freshly issued authenticated `SESSION` cookie) and so `POST`-then-redirect flows like `/book` can assert the redirect to Moyasar directly.
 
 ---
 
@@ -90,10 +74,8 @@ The stored procedure `generate_seats_for_hall(hall_id)` is idempotent: it wipes 
 Two concurrent requests to book the same seat are serialised by `SELECT … FOR UPDATE NOWAIT` on the `showtime_seats` row inside a `@Transactional` method. The first transaction holds a row-level lock; the second fails fast with a lock timeout and receives `SeatUnavailableException`. This approach:
 
 - Is deterministic (no lost updates, no double booking)
-- Requires no application-level locking or Redis
+- Requires no application-level locking
 - Uses `NOWAIT` so the failing request gets an immediate error rather than queuing
-
-The `version` column on `showtime_seats` is also maintained (incremented on each hold/confirm/release) to support future optimistic-locking readers.
 
 ### Transaction Boundaries
 
@@ -118,7 +100,9 @@ All emails are published as Spring `ApplicationEvent`s with `@TransactionalEvent
 
 ### Payment Confirmation
 
-Payment is considered paid only after Moyasar returns `status: paid` on a direct API call to `GET /payments/{id}`. The browser redirect carries the `id` (payment ID) and `status` query parameters, but these are **not trusted** — we always re-verify with Moyasar before updating the booking. The same is true for the webhook: its body is only used to identify which payment to re-verify.
+Checkout uses Moyasar's **Payments API** (`POST /v1/payments`): the booking form collects the card details and posts them as a `creditcard` source with `3ds: true` and a `callback_url`. Moyasar returns the payment in `initiated` status with a `source.transaction_url`, and the server redirects the browser there for 3-D Secure authentication. We store the returned payment id on the booking.
+
+Payment is considered paid only after Moyasar returns `status: paid` on a direct API call to `GET /v1/payments/{id}`. The browser redirect query parameters are **not trusted** — we always re-verify with Moyasar before updating the booking (that payment id is what later refunds are issued against). The webhook (`payment_paid`) likewise only identifies the booking — via its `booking_id` metadata or stored payment id — and is then reconciled against the DB amount.
 
 Amount reconciliation is also performed: `booking.totalAmount × 100` (SAR → halala) must match `payment.amount`. Money is handled exclusively with `BigDecimal`/integer halala — never floating point.
 
@@ -144,7 +128,6 @@ A PENDING booking holds a seat for `app.booking.seat-hold-minutes` (default 15 m
 
 ### Admin Cancellation (crash-safe)
 
-The cancel flow uses three steps to be crash-safe:
 
 1. **DB (fast):** atomically CONFIRMED → REFUND_PENDING (only one caller wins this CAS).
 2. **Network:** call Moyasar to refund (no DB transaction open during the HTTP call).
@@ -168,7 +151,7 @@ A `@Scheduled` reconciliation job finds bookings stuck in `REFUND_PENDING` (cras
 ## Assumptions (where the spec was silent)
 
 1. **Seat hold duration**: 15 minutes. After that, the seat is released automatically.
-2. **Payment URL model**: Moyasar `source.transaction_url` is the hosted payment page URL. The callback returns to `/bookings/{id}/payment/callback?id={payment_id}&status={status}`.
+2. **Payment URL model**: the Moyasar payment's `source.transaction_url` is the 3-D Secure authentication URL. The `callback_url` returns to `/bookings/{id}/payment/callback`, where the booking is re-verified against the payment server-side.
 3. **PENDING bookings in "My Bookings"**: Shown with a PENDING badge; the hold will expire and seat be released by the background job if the user abandons payment.
 4. **Admin cannot self-register**: Admin account is seeded via Flyway only (as per spec).
 5. **Reminder job timezone**: `Asia/Riyadh` (UTC+3). Showtimes are stored in UTC; the query uses `CONVERT_TZ` to compare the Riyadh local date.
@@ -189,17 +172,17 @@ The test suite deliberately covers the **critical path**: Happy Path, Concurrenc
 
 | Area | Coverage | Notes |
 |------|----------|-------|
-| **Booking entry point** (HTTP end-to-end) | ✅ `BookingFlowTest.httpEndToEnd_postBook_*` | Registers a user, logs in via `TestRestTemplate`, POSTs to `/showtimes/{id}/book`, and asserts `PENDING` booking + `HELD` seat in the database |
-| **Payment confirmation** | ✅ `BookingFlowTest.successfulPayment_*` | Asserts `Booking.status == CONFIRMED` **and** `ShowtimeSeat.status == BOOKED` and verifies Resend received the confirmation email |
-| **Seat race condition** | ✅ `SeatConcurrencyTest` | Two threads race for the same seat; exactly one wins — proven via `SELECT … FOR UPDATE NOWAIT` |
-| **Idempotent confirmation** | ✅ `BookingFlowTest.duplicateConfirmation_*` | Webhook and browser redirect can both fire; only the first `UPDATE … WHERE status = 'PENDING'` succeeds |
-| **Admin cancellation + seat release** | ✅ `BookingFlowTest.adminCancelConfirmedBooking_*` | Asserts `CANCELLED` booking and `AVAILABLE` seat |
-| **Webhook confirmation path** | ✅ `WebhookConfirmationTest` | Server-to-server confirm without a browser |
-| **Hold expiry (cron)** | ⚠️ Query-level only | The cron SQL is tested via `ReminderTest`; driving actual time expiry in a test was deferred in favour of financial-path coverage |
-| **Refund reconciliation (cron)** | ⚠️ Not integration-tested | `reconcilePendingRefunds` logic is present and crash-safe by design; a dedicated integration test with a simulated Moyasar outage is a suggested future improvement |
-| **Past-showtime guard** | ❌ Not implemented | Showtimes are seeded with future dates; a server-side check is a low-risk future addition |
-| **Outbox pattern for guaranteed email** | ❌ Not implemented | The current `@Async + @TransactionalEventListener` approach is safe (emails fire only after commit) but not durable across a JVM crash post-commit. An outbox table would be the production hardening step |
-| **Rate limiting on `/register` and `/login`** | ❌ Not implemented | Suggested improvement; out of scope for this assessment |
+| **Booking entry point** (HTTP end-to-end) |  `BookingFlowTest.httpEndToEnd_postBook_*` | Registers a user, logs in via `TestRestTemplate`, POSTs to `/showtimes/{id}/book`, and asserts `PENDING` booking + `HELD` seat in the database |
+| **Payment confirmation** |  `BookingFlowTest.successfulPayment_*` | Asserts `Booking.status == CONFIRMED` **and** `ShowtimeSeat.status == BOOKED` and verifies Resend received the confirmation email |
+| **Seat race condition** |  `SeatConcurrencyTest` | Two threads race for the same seat; exactly one wins — proven via `SELECT … FOR UPDATE NOWAIT` |
+| **Idempotent confirmation** |  `BookingFlowTest.duplicateConfirmation_*` | Webhook and browser redirect can both fire; only the first `UPDATE … WHERE status = 'PENDING'` succeeds |
+| **Admin cancellation + seat release** |  `BookingFlowTest.adminCancelConfirmedBooking_*` | Asserts `CANCELLED` booking and `AVAILABLE` seat |
+| **Webhook confirmation path** |  `WebhookConfirmationTest` | Server-to-server confirm without a browser |
+| **Hold expiry (cron)** |  Query-level only | The cron SQL is tested via `ReminderTest`; driving actual time expiry in a test was deferred in favour of financial-path coverage |
+| **Refund reconciliation (cron)** |  Not integration-tested | `reconcilePendingRefunds` logic is present and crash-safe by design; a dedicated integration test with a simulated Moyasar outage is a suggested future improvement |
+| **Past-showtime guard** |  Not implemented | Showtimes are seeded with future dates; a server-side check is a low-risk future addition |
+| **Outbox pattern for guaranteed email** |  Not implemented | The current `@Async + @TransactionalEventListener` approach is safe (emails fire only after commit) but not durable across a JVM crash post-commit. An outbox table would be the production hardening step |
+| **Rate limiting on `/register` and `/login`** |  Not implemented | Suggested improvement; out of scope for this assessment |
 
 ---
 
@@ -211,8 +194,24 @@ The test suite deliberately covers the **critical path**: Happy Path, Concurrenc
 ## What I'd Improve With More Time
 
 1. **Late-payment reconciliation**: If a `paid` webhook arrives after the hold expired and the seat was re-sold, today it is auto-refunded and flagged. With more time I'd add operator alerting.
-2. **Outbox pattern**: For guaranteed email delivery, use a transactional outbox table and a separate dispatcher instead of relying on `AFTER_COMMIT` events.
+2. **Outbox pattern**: For guaranteed email delivery, I would use a transactional outbox table and a separate dispatcher instead of relying on `AFTER_COMMIT` events.
 3. **Rate limiting**: On `/register` and `/login` to prevent brute-force.
 4. **Admin movie/showtime CRUD**: Currently seeded via Flyway only.
 5. **Metrics & observability**: Micrometer + Prometheus for payment success rates, seat availability, etc.
 6. **Past-showtime guard**: Prevent booking showtimes whose `start_time` is in the past.
+
+---
+
+## Screenshots
+
+### Seat Map
+
+![Seat map — interactive seat selection for a showtime](images/seat-map.PNG)
+
+### Movie Detail
+
+![Movie detail page with showtimes and booking options](images/movie-detail%20page.PNG)
+
+### Test Suite
+
+![Integration test suite results](images/tests.PNG)

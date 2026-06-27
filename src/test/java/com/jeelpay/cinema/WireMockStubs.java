@@ -1,21 +1,17 @@
 package com.jeelpay.cinema;
 
+import com.jeelpay.cinema.domain.Booking;
+import com.jeelpay.cinema.integration.moyasar.CardDetails;
+import com.jeelpay.cinema.service.BookingService;
+
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
-/**
- * Reusable WireMock stub builders for Moyasar and Resend.
- *
- * All methods use the static {@link com.github.tomakehurst.wiremock.client.WireMock}
- * API, which delegates to the client configured in
- * {@link AbstractIntegrationTest#configureWireMockClient()}. No
- * {@code WireMockServer} parameter is needed — the global client is always
- * pointed at the shared WireMock container.
- */
 public final class WireMockStubs {
 
-    private WireMockStubs() {}
+    public static final CardDetails TEST_CARD =
+            new CardDetails("John Doe", "4111111111111111", 12, 2026, "911");
 
-    // ── Moyasar ──────────────────────────────────────────────────────────────────
+    private WireMockStubs() {}
 
     public static void stubMoyasarCreatePayment(String paymentId, String transactionUrl) {
         stubFor(post(urlPathEqualTo("/moyasar/payments"))
@@ -25,9 +21,17 @@ public final class WireMockStubs {
                           "status": "initiated",
                           "amount": 4500,
                           "currency": "SAR",
-                          "source": { "transaction_url": "%s" }
+                          "source": { "type": "creditcard", "transaction_url": "%s" }
                         }
                         """.formatted(paymentId, transactionUrl))));
+    }
+
+    public static void confirmBookingViaPaidPayment(BookingService bookingService, Booking booking,
+                                                    String paymentId, long amountHalala) {
+        stubMoyasarCreatePayment(paymentId, "https://moyasar.test/pay/" + paymentId);
+        bookingService.initiatePayment(booking, TEST_CARD);
+        stubMoyasarGetPaymentPaid(paymentId, amountHalala);
+        bookingService.confirmPayment(booking.getId());
     }
 
     public static void stubMoyasarGetPaymentPaid(String paymentId, long amountHalala) {
@@ -68,8 +72,6 @@ public final class WireMockStubs {
                         }
                         """.formatted(paymentId))));
     }
-
-    // ── Resend ───────────────────────────────────────────────────────────────────
 
     public static void stubResendEmail() {
         stubFor(post(urlPathEqualTo("/resend/emails"))

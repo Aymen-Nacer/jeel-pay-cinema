@@ -11,17 +11,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
-/**
- * Server-to-server payment confirmation from Moyasar (webhook).
- *
- * Delegates to {@link BookingService#handleWebhookPayment} which:
- * <ul>
- *   <li>Is fully idempotent (CONFIRMED → no-op).</li>
- *   <li>Handles late payments on CANCELLED bookings with an auto-refund.</li>
- *   <li>Never trusts the webhook body alone — the service layer re-verifies amounts
- *       against the DB record.</li>
- * </ul>
- */
 @RestController
 public class MoyasarWebhookController {
 
@@ -57,27 +46,31 @@ public class MoyasarWebhookController {
         String bookingId = extractBookingId(data.get("metadata"));
 
         if (paymentId == null || bookingId == null) {
-            log.warn("Moyasar webhook missing payment id or booking metadata (type={})", type);
+            log.warn("Moyasar webhook missing payment id or booking reference (type={})", type);
             return ResponseEntity.ok().build();
         }
 
         boolean paid = "paid".equalsIgnoreCase(status) || "payment_paid".equalsIgnoreCase(type);
         if (!paid) {
-            log.info("Ignoring non-paid Moyasar webhook for booking {} (type={}, status={})",
+            log.info("Ignoring non-paid Moyasar webhook (booking={}, type={}, status={})",
                     bookingId, type, status);
             return ResponseEntity.ok().build();
         }
 
-        // Extract the amount from the webhook body for tamper-checking in the service.
         Long amountHalala = extractAmount(data.get("amount"));
 
         try {
             bookingService.handleWebhookPayment(bookingId, paymentId, amountHalala);
             return ResponseEntity.ok().build();
+        } catch (IllegalArgumentException e) {
+            // Ack permanently unmappable events so Moyasar stops retrying.
+            log.warn("Webhook for unmappable payment {} (booking={}): {}",
+                    paymentId, bookingId, e.getMessage());
+            return ResponseEntity.ok().build();
         } catch (Exception e) {
             log.error("Webhook processing failed for booking {} payment {}: {}",
                     bookingId, paymentId, e.getMessage());
-            // Return 5xx so Moyasar retries transient failures.
+            // 5xx triggers Moyasar retries for transient failures.
             return ResponseEntity.status(500).build();
         }
     }

@@ -17,19 +17,6 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Authorization tests:
- * <ol>
- *   <li>An unauthenticated user is redirected to /login for protected pages.</li>
- *   <li>A USER cannot reach /admin/** (gets 403, not served).</li>
- *   <li>A USER cannot view another user's booking.</li>
- *   <li>An ADMIN can access /admin/bookings.</li>
- * </ol>
- *
- * CSRF token extraction is delegated to {@link TestHttpHelper} (Jsoup-based),
- * and showtimes are created via {@link TestDataFactory} rather than relying on
- * seeded IDs (Mystery Guest anti-pattern).
- */
 class AuthorizationTest extends AbstractIntegrationTest {
 
     @Autowired TestRestTemplate restTemplate;
@@ -42,13 +29,8 @@ class AuthorizationTest extends AbstractIntegrationTest {
         WireMockStubs.stubResendEmail();
     }
 
-    // ── Tests ────────────────────────────────────────────────────────────────────
-
     @Test
     void unauthenticated_adminPage_redirectsToLogin() {
-        // TestRestTemplate (Spring Boot 4) follows GET redirects, so a 302 would become
-        // 200 (the login page). Use a plain RestTemplate backed by SimpleClientHttpRequestFactory
-        // with redirect-following disabled to observe the raw 302 response.
         var factory = new SimpleClientHttpRequestFactory() {
             @Override
             protected void prepareConnection(HttpURLConnection connection, String httpMethod)
@@ -90,14 +72,12 @@ class AuthorizationTest extends AbstractIntegrationTest {
         var owner    = userService.register("owner-auth@test.com",    "password123");
         var intruder = userService.register("intruder-auth@test.com", "password123");
 
-        // Create an isolated showtime — no dependence on Flyway seed IDs.
         var ctx = testDataFactory.createShowtimeWithSeats(4, 8);
         String paymentId = "pay-auth-" + java.util.UUID.randomUUID();
-        WireMockStubs.stubMoyasarGetPaymentPaid(paymentId, 4500L);
 
         var booking = bookingService.createPendingBooking(
                 ctx.showtimeId(), List.of(ctx.firstSeat()), owner.getId());
-        bookingService.confirmPayment(booking.getId(), paymentId);
+        WireMockStubs.confirmBookingViaPaidPayment(bookingService, booking, paymentId, 4500L);
 
         String intruderSession = TestHttpHelper.loginAndGetSessionCookie(
                 restTemplate, baseUrl(), "intruder-auth@test.com", "password123");

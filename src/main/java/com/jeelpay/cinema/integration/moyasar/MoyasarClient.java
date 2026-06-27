@@ -1,8 +1,6 @@
 package com.jeelpay.cinema.integration.moyasar;
 
 import com.jeelpay.cinema.config.AppProperties;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -11,14 +9,12 @@ import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
 public class MoyasarClient {
 
-    private static final Logger log = LoggerFactory.getLogger(MoyasarClient.class);
-
-    // Sensible timeouts so a slow/hung Moyasar never ties up a request thread indefinitely.
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(15);
 
@@ -38,22 +34,32 @@ public class MoyasarClient {
     }
 
     /**
-     * Create a payment and return the hosted payment page URL (transaction_url).
-     * Amount is in SAR; Moyasar expects halala (×100, integer).
+     * Creates a card payment directly via the Payments API. With {@code 3ds = true} the
+     * response is {@code initiated} and carries a {@code source.transaction_url} that the
+     * customer must visit to complete 3-D Secure authentication.
      */
     public MoyasarPaymentResponse createPayment(String bookingId, BigDecimal amountSar,
-                                                String callbackUrl, String description) {
+                                                String callbackUrl, String description,
+                                                CardDetails card) {
         long halala = amountSar.multiply(BigDecimal.valueOf(100)).longValue();
+
+        var source = new LinkedHashMap<String, Object>();
+        source.put("type", "creditcard");
+        source.put("name", card.name());
+        source.put("number", card.number());
+        source.put("month", card.month());
+        source.put("year", card.year());
+        source.put("cvc", card.cvc());
+        source.put("3ds", true);
+        source.put("manual", false);
 
         var body = Map.of(
                 "amount", halala,
                 "currency", "SAR",
                 "description", description,
                 "callback_url", callbackUrl,
-                // booking_id is echoed back in the webhook payload so the server-to-server
-                // webhook path can map a payment to its booking without the browser redirect.
                 "metadata", Map.of("booking_id", bookingId),
-                "source", Map.of("type", "creditcard")
+                "source", source
         );
 
         try {
@@ -74,9 +80,6 @@ public class MoyasarClient {
         }
     }
 
-    /**
-     * Fetch payment details from Moyasar for verification.
-     */
     public MoyasarPaymentResponse getPayment(String paymentId) {
         try {
             return restClient.get()
@@ -94,9 +97,6 @@ public class MoyasarClient {
         }
     }
 
-    /**
-     * Refund the full amount of a payment. Returns the updated payment response.
-     */
     public MoyasarPaymentResponse refundPayment(String paymentId, BigDecimal amountSar) {
         long halala = amountSar.multiply(BigDecimal.valueOf(100)).longValue();
         var body = Map.of("amount", halala);

@@ -1,6 +1,7 @@
 package com.jeelpay.cinema.web;
 
 import com.jeelpay.cinema.domain.Booking;
+import com.jeelpay.cinema.integration.moyasar.CardDetails;
 import com.jeelpay.cinema.integration.moyasar.MoyasarException;
 import com.jeelpay.cinema.repository.UserRepository;
 import com.jeelpay.cinema.service.BookingService;
@@ -31,18 +32,14 @@ public class BookingController {
         this.userRepository = userRepository;
     }
 
-    /**
-     * POST /showtimes/{showtimeId}/book
-     *
-     * Phase 1: create a PENDING booking (hold seats, generate UUID).
-     * Phase 2: initiate Moyasar payment outside the transaction.
-     * Redirects the user to the Moyasar hosted payment page.
-     *
-     * Accepts one or more seat numbers via the "seatNumbers" multi-value parameter.
-     */
     @PostMapping("/showtimes/{showtimeId}/book")
     public String book(@PathVariable Long showtimeId,
                        @RequestParam List<String> seatNumbers,
+                       @RequestParam("cardName") String cardName,
+                       @RequestParam("cardNumber") String cardNumber,
+                       @RequestParam("cardMonth") int cardMonth,
+                       @RequestParam("cardYear") int cardYear,
+                       @RequestParam("cardCvc") String cardCvc,
                        @AuthenticationPrincipal UserDetails principal,
                        RedirectAttributes redirectAttrs) {
 
@@ -61,8 +58,13 @@ public class BookingController {
             return "redirect:/showtimes/" + showtimeId;
         }
 
+        var card = new CardDetails(
+                cardName.trim(),
+                cardNumber.replaceAll("\\s+", ""),
+                cardMonth, cardYear, cardCvc.trim());
+
         try {
-            String paymentUrl = bookingService.initiatePayment(booking);
+            String paymentUrl = bookingService.initiatePayment(booking, card);
             return "redirect:" + paymentUrl;
         } catch (MoyasarException e) {
             log.error("Payment initiation failed for booking {}: {}", booking.getId(), e.getMessage());
@@ -72,21 +74,11 @@ public class BookingController {
         }
     }
 
-    /**
-     * GET /bookings/{bookingId}/payment/callback
-     *
-     * Moyasar redirects the user here after payment.
-     * Phase 3: if paid, confirm booking and save the Moyasar payment ID.
-     * Ownership is verified before any action: only the booking owner may trigger confirmation.
-     */
     @GetMapping("/bookings/{bookingId}/payment/callback")
     public String paymentCallback(@PathVariable String bookingId,
-                                  @RequestParam(required = false) String id,
-                                  @RequestParam(required = false) String status,
                                   @AuthenticationPrincipal UserDetails principal,
                                   RedirectAttributes redirectAttrs) {
 
-        // Ownership check: confirm this booking belongs to the authenticated user.
         var user = userRepository.findByEmail(principal.getUsername()).orElseThrow();
         Booking booking = bookingService.findById(bookingId).orElse(null);
         if (booking == null || !booking.getUserId().equals(user.getId())) {
@@ -94,23 +86,17 @@ public class BookingController {
             return "redirect:/my-bookings";
         }
 
-        if ("paid".equalsIgnoreCase(status) && id != null) {
-            try {
-                bookingService.confirmPayment(bookingId, id);
-                redirectAttrs.addFlashAttribute("success", "Booking confirmed! Enjoy the show.");
-            } catch (MoyasarException e) {
-                log.error("Payment verification failed for booking {}: {}", bookingId, e.getMessage());
-                redirectAttrs.addFlashAttribute("error", "Payment verification failed: " + e.getMessage());
-            }
-        } else {
-            bookingService.releaseBooking(bookingId);
-            redirectAttrs.addFlashAttribute("error", "Payment was not completed. Your seat has been released.");
+        try {
+            bookingService.confirmPayment(bookingId);
+            redirectAttrs.addFlashAttribute("success", "Booking confirmed! Enjoy the show.");
+        } catch (MoyasarException e) {
+            log.error("Payment verification failed for booking {}: {}", bookingId, e.getMessage());
+            redirectAttrs.addFlashAttribute("error", "Payment was not completed: " + e.getMessage());
         }
 
         return "redirect:/my-bookings";
     }
 
-    /** GET /my-bookings */
     @GetMapping("/my-bookings")
     public String myBookings(@AuthenticationPrincipal UserDetails principal, Model model) {
         var user = userRepository.findByEmail(principal.getUsername()).orElseThrow();
@@ -119,7 +105,6 @@ public class BookingController {
         return "my-bookings";
     }
 
-    /** GET /bookings/{id} — booking detail; users can only see their own bookings. */
     @GetMapping("/bookings/{id}")
     public String bookingDetail(@PathVariable String id,
                                 @AuthenticationPrincipal UserDetails principal,

@@ -5,6 +5,7 @@ import com.jeelpay.cinema.domain.*;
 import com.jeelpay.cinema.event.BookingCancelledEvent;
 import com.jeelpay.cinema.event.BookingConfirmedEvent;
 import com.jeelpay.cinema.event.BookingRefundedLateEvent;
+import com.jeelpay.cinema.integration.moyasar.CardDetails;
 import com.jeelpay.cinema.integration.moyasar.MoyasarClient;
 import com.jeelpay.cinema.integration.moyasar.MoyasarException;
 import com.jeelpay.cinema.integration.moyasar.MoyasarPaymentResponse;
@@ -54,18 +55,6 @@ public class BookingService {
         this.appProperties = appProperties;
     }
 
-    // ── Phase 1: Tx1 ─────────────────────────────────────────────────────────
-    // Lock all requested seat rows with SELECT FOR UPDATE NOWAIT (fail-fast),
-    // generate a UUID booking id, and persist the PENDING booking.
-    // Transaction commits here — DB connection is released before the network call.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Atomically acquire pessimistic locks on all requested seats (FOR UPDATE NOWAIT)
-     * and insert a PENDING booking that covers all of them.
-     *
-     * @param seatNumbers list of seat labels to book, e.g. ["A1", "A2"]
-     */
     @Transactional
     public Booking createPendingBooking(Long showtimeId, List<String> seatNumbers, Long userId) {
         if (seatNumbers == null || seatNumbers.isEmpty()) {
@@ -111,76 +100,56 @@ public class BookingService {
         String label = seats.stream().map(ShowtimeSeat::getSeatNumber).collect(Collectors.joining(", "));
         booking.setSeatNumber(label);
         return booking;
-        // Tx1 commits here — seats are HELD, booking is PENDING.
     }
 
-    // ── Phase 2: Network call (no transaction) ────────────────────────────────
-    // Call Moyasar outside any transaction. No DB connection is held during the
-    // HTTP round-trip.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Create a Moyasar payment for the given booking, then immediately persist the
-     * returned Moyasar payment ID so the cron job can query Moyasar by it (Tx1.5).
-     *
-     * @return the Moyasar hosted payment page URL to redirect the user to
-     */
-    public String initiatePayment(Booking booking) {
+    public String initiatePayment(Booking booking, CardDetails card) {
         String callbackUrl = appProperties.getBaseUrl()
                 + "/bookings/" + booking.getId() + "/payment/callback";
         String description = "Cinema ticket – booking " + booking.getId()
                 + " seats " + booking.getSeatNumber();
 
-        // Network call — no DB connection held.
-        MoyasarPaymentResponse response = moyasarClient.createPayment(
-                booking.getId(), booking.getTotalAmount(), callbackUrl, description);
+        MoyasarPaymentResponse payment = moyasarClient.createPayment(
+                booking.getId(), booking.getTotalAmount(), callbackUrl, description, card);
 
-        String transactionUrl = response.getTransactionUrl();
+        if (payment.getId() == null) {
+            throw new MoyasarException("Moyasar returned no payment id", 500);
+        }
+
+        String transactionUrl = payment.getTransactionUrl();
         if (transactionUrl == null || transactionUrl.isBlank()) {
-            throw new MoyasarException("Moyasar returned no transaction URL", 500);
+            throw new MoyasarException("Moyasar returned no 3-D Secure transaction URL", 500);
         }
 
-        // Tx1.5: persist the Moyasar payment ID for future cron/webhook lookups.
-        if (response.getId() != null) {
-            bookingRepository.saveMoyasarId(booking.getId(), response.getId());
-        }
+        bookingRepository.saveMoyasarId(booking.getId(), payment.getId());
 
         return transactionUrl;
     }
 
-    // ── Phase 3a: Browser Redirect ────────────────────────────────────────────
-    // The user returns from Moyasar. We verify directly with Moyasar and do an
-    // atomic conditional UPDATE (PENDING → CONFIRMED) to avoid double-confirming
-    // if the webhook already ran.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Handle the browser redirect back from Moyasar after the user pays.
-     * Verifies the payment amount against the DB and uses an atomic conditional
-     * update so concurrent webhook confirmation is harmless.
-     */
-    public void confirmPayment(String bookingId, String moyasarPaymentId) {
+    public void confirmPayment(String bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new IllegalArgumentException("Booking not found: " + bookingId));
 
-        // Idempotency: already confirmed (webhook was faster).
         if (booking.getStatus() == BookingStatus.CONFIRMED) {
             log.info("Booking {} already confirmed — redirect path skipping duplicate", bookingId);
             return;
         }
 
-        // If cancelled by cron while the user was on the payment page, the webhook
-        // handler will deal with the late-payment refund. Nothing to do here.
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             log.warn("Booking {} is CANCELLED — payment redirect ignored; webhook will handle refund if needed", bookingId);
             throw new MoyasarException("Booking session expired. If payment was taken, a refund will be issued automatically.", 422);
         }
 
-        // Verify with Moyasar — do NOT trust redirect query params alone.
-        MoyasarPaymentResponse payment = moyasarClient.getPayment(moyasarPaymentId);
+        if (booking.getMoyasarPaymentId() == null) {
+            log.warn("Redirect: booking {} has no Moyasar payment id — releasing", bookingId);
+            transactionTemplate.execute(status -> { releaseBookingInternal(bookingId); return null; });
+            throw new MoyasarException("Payment was not initiated correctly.", 422);
+        }
+
+        // Redirect query params are not trusted — verify payment status with Moyasar directly.
+        MoyasarPaymentResponse payment = moyasarClient.getPayment(booking.getMoyasarPaymentId());
         if (!payment.isPaid()) {
             log.warn("Redirect: payment {} status={} for booking {} — releasing",
-                    moyasarPaymentId, payment.getStatus(), bookingId);
+                    booking.getMoyasarPaymentId(), payment.getStatus(), bookingId);
             transactionTemplate.execute(status -> {
                 releaseBookingInternal(bookingId);
                 return null;
@@ -188,15 +157,16 @@ public class BookingService {
             throw new MoyasarException("Payment not completed: " + payment.getStatus(), 422);
         }
 
-        // Amount reconciliation.
         long expectedHalala = booking.getTotalAmount().multiply(BigDecimal.valueOf(100)).longValue();
-        if (payment.getAmount() != null && !payment.getAmount().equals(expectedHalala)) {
+        Long paidHalala = payment.getAmount();
+        if (paidHalala != null && !paidHalala.equals(expectedHalala)) {
             log.error("Amount mismatch for booking {}: expected {} halala, paid {}",
-                    bookingId, expectedHalala, payment.getAmount());
+                    bookingId, expectedHalala, paidHalala);
             throw new MoyasarException("Payment amount mismatch", 422);
         }
 
-        // Atomic conditional update: only moves PENDING → CONFIRMED once.
+        String moyasarPaymentId = payment.getId();
+
         int[] updatedHolder = {0};
         transactionTemplate.execute(txStatus -> {
             int rows = bookingRepository.confirmIfPending(bookingId, moyasarPaymentId);
@@ -214,53 +184,38 @@ public class BookingService {
         }
     }
 
-    // ── Phase 3b: Webhook ─────────────────────────────────────────────────────
-    // Server-to-server path. Handles: normal confirmation, idempotent re-delivery,
-    // and late payment on an already-CANCELLED booking (auto-refund).
-    // ─────────────────────────────────────────────────────────────────────────
+    public void handleWebhookPayment(String bookingId, String moyasarPaymentId, Long webhookAmountHalala) {
+        Booking booking = resolveBooking(bookingId, moyasarPaymentId);
+        if (booking == null) {
+            throw new IllegalArgumentException(
+                    "Booking not found for webhook (bookingId=" + bookingId + ", paymentId=" + moyasarPaymentId + ")");
+        }
+        final String resolvedId = booking.getId();
 
-    /**
-     * Process a "paid" webhook event from Moyasar.
-     * <ul>
-     *   <li>CONFIRMED — idempotent, return immediately.</li>
-     *   <li>CANCELLED — late payment; refund immediately and mark REFUNDED_LATE_PAYMENT.</li>
-     *   <li>PENDING — normal path; atomic conditional PENDING → CONFIRMED.</li>
-     * </ul>
-     */
-    public void handleWebhookPayment(String bookingId, String moyasarPaymentId,
-                                     Long webhookAmountHalala) {
-        Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new IllegalArgumentException("Booking not found: " + bookingId));
-
-        // 1. Idempotency.
         if (booking.getStatus() == BookingStatus.CONFIRMED) {
-            log.info("Webhook: booking {} already CONFIRMED — ignoring", bookingId);
+            log.info("Webhook: booking {} already CONFIRMED — ignoring", resolvedId);
             return;
         }
 
-        // 2. Amount validation (tamper check using the DB amount, not webhook body).
         long expectedHalala = booking.getTotalAmount().multiply(BigDecimal.valueOf(100)).longValue();
         if (webhookAmountHalala != null && !webhookAmountHalala.equals(expectedHalala)) {
             log.error("Webhook amount mismatch for booking {}: expected {} halala, got {}",
-                    bookingId, expectedHalala, webhookAmountHalala);
+                    resolvedId, expectedHalala, webhookAmountHalala);
             throw new MoyasarException("Payment amount mismatch", 422);
         }
 
-        // 3. Late payment: booking was cancelled while user was paying.
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             log.warn("Webhook: booking {} is CANCELLED but payment {} arrived — refunding immediately",
-                    bookingId, moyasarPaymentId);
+                    resolvedId, moyasarPaymentId);
             try {
                 moyasarClient.refundPayment(moyasarPaymentId, booking.getTotalAmount());
             } catch (MoyasarException e) {
-                log.error("Auto-refund failed for late payment on booking {}: {}", bookingId, e.getMessage());
-                // Still mark as REFUNDED_LATE_PAYMENT so an operator can follow up;
-                // the row update is idempotent.
+                log.error("Auto-refund failed for late payment on booking {}: {}", resolvedId, e.getMessage());
             }
             transactionTemplate.execute(txStatus -> {
-                int rows = bookingRepository.markRefundedLatePayment(bookingId);
+                int rows = bookingRepository.markRefundedLatePayment(resolvedId);
                 if (rows == 1) {
-                    Booking updated = bookingRepository.findById(bookingId).orElseThrow();
+                    Booking updated = bookingRepository.findById(resolvedId).orElseThrow();
                     eventPublisher.publishEvent(new BookingRefundedLateEvent(this, updated));
                 }
                 return null;
@@ -268,25 +223,33 @@ public class BookingService {
             return;
         }
 
-        // 4. Normal path: PENDING → CONFIRMED (atomic conditional).
         int[] updatedHolder = {0};
         transactionTemplate.execute(txStatus -> {
-            int rows = bookingRepository.confirmIfPending(bookingId, moyasarPaymentId);
+            int rows = bookingRepository.confirmIfPending(resolvedId, moyasarPaymentId);
             updatedHolder[0] = rows;
             if (rows == 1) {
-                seatRepository.confirmSeat(bookingId);
-                Booking confirmed = bookingRepository.findById(bookingId).orElseThrow();
+                seatRepository.confirmSeat(resolvedId);
+                Booking confirmed = bookingRepository.findById(resolvedId).orElseThrow();
                 eventPublisher.publishEvent(new BookingConfirmedEvent(this, confirmed));
             }
             return null;
         });
 
         if (updatedHolder[0] == 0) {
-            log.info("Webhook: booking {} was already transitioned (concurrent redirect or webhook)", bookingId);
+            log.info("Webhook: booking {} was already transitioned (concurrent redirect or webhook)", resolvedId);
         }
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    private Booking resolveBooking(String bookingId, String paymentId) {
+        if (bookingId != null) {
+            Optional<Booking> byId = bookingRepository.findById(bookingId);
+            if (byId.isPresent()) return byId.get();
+        }
+        if (paymentId != null) {
+            return bookingRepository.findByPaymentId(paymentId).orElse(null);
+        }
+        return null;
+    }
 
     @Transactional
     public void releaseBooking(String bookingId) {
@@ -301,24 +264,14 @@ public class BookingService {
     }
 
     /**
-     * Admin-triggered cancellation with Moyasar refund.
-     *
-     * Workflow (crash-safe):
-     * <ol>
-     *   <li><b>DB (fast):</b> atomically move CONFIRMED → REFUND_PENDING. Seats stay
-     *       held, so a crash here never double-frees a seat. Only one caller wins this race.</li>
-     *   <li><b>Network:</b> request the refund from Moyasar (no DB transaction open).</li>
-     *   <li><b>DB:</b> on success, REFUND_PENDING → CANCELLED and release the seats in one
-     *       transaction. On Moyasar failure (money never left), revert to CONFIRMED.</li>
-     * </ol>
-     * If the process dies after Moyasar succeeds (step 3), the booking stays in
-     * REFUND_PENDING and {@link #reconcilePendingRefunds()} repairs it later.
+     * Crash-safe refund: CONFIRMED → REFUND_PENDING (seats stay held), refund via Moyasar
+     * outside any DB transaction, then REFUND_PENDING → CANCELLED. If the process dies
+     * after Moyasar succeeds, {@link #reconcilePendingRefunds()} finishes the job.
      */
     public void cancelBooking(String bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new IllegalArgumentException("Booking not found: " + bookingId));
 
-        // Idempotency: already done.
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             return;
         }
@@ -326,20 +279,16 @@ public class BookingService {
             throw new IllegalStateException("Only CONFIRMED bookings can be cancelled. Current: " + booking.getStatus());
         }
 
-        // ── Step 1: claim the booking for refunding (CONFIRMED → REFUND_PENDING). ──
         int claimed = transactionTemplate.execute(s -> bookingRepository.markRefundPending(bookingId));
         if (claimed == 0) {
-            // Lost the race to a concurrent cancel/reconcile — nothing to do.
             log.info("Booking {} is already being refunded or cancelled (concurrent request)", bookingId);
             return;
         }
 
-        // ── Step 2: refund via Moyasar (no transaction held during the network call). ──
         if (booking.getMoyasarPaymentId() != null) {
             try {
                 moyasarClient.refundPayment(booking.getMoyasarPaymentId(), booking.getTotalAmount());
             } catch (MoyasarException e) {
-                // Accept "already refunded" as success; otherwise the money never left.
                 if (isAlreadyRefunded(booking.getMoyasarPaymentId())) {
                     log.info("Booking {} payment {} was already refunded at Moyasar — proceeding to cancel",
                             bookingId, booking.getMoyasarPaymentId());
@@ -351,7 +300,6 @@ public class BookingService {
             }
         }
 
-        // ── Step 3: finalize — REFUND_PENDING → CANCELLED and free the seats. ──
         final Booking bookingSnapshot = booking;
         transactionTemplate.execute(txStatus -> {
             int rows = bookingRepository.cancelIfRefundPending(bookingId);
@@ -363,10 +311,6 @@ public class BookingService {
         });
     }
 
-    /**
-     * Query Moyasar to see whether a payment is already in the {@code refunded}
-     * state. Used to treat a duplicate refund attempt as success.
-     */
     private boolean isAlreadyRefunded(String moyasarPaymentId) {
         try {
             return moyasarClient.getPayment(moyasarPaymentId).isRefunded();
@@ -374,8 +318,6 @@ public class BookingService {
             return false;
         }
     }
-
-    // ── Queries ──────────────────────────────────────────────────────────────
 
     public Optional<Booking> findById(String id) {
         return bookingRepository.findById(id);
@@ -392,12 +334,6 @@ public class BookingService {
     public long countAll(BookingStatus status, Long movieId) {
         return bookingRepository.countAll(status, movieId);
     }
-
-    // ── Cron: Sync expired PENDING bookings (every 5 minutes) ────────────────
-    // For each expired PENDING booking, verify the real payment status with Moyasar
-    // before deciding to cancel or confirm. This catches the edge case where both
-    // the redirect and webhook failed but the payment went through.
-    // ─────────────────────────────────────────────────────────────────────────
 
     @Scheduled(fixedDelay = 300_000)
     public void releaseExpiredHolds() {
@@ -416,7 +352,6 @@ public class BookingService {
     private void syncExpiredBooking(Booking booking) {
         String bookingId = booking.getId();
 
-        // If we have a Moyasar payment ID, verify the real payment status.
         if (booking.getMoyasarPaymentId() != null) {
             MoyasarPaymentResponse payment;
             try {
@@ -427,15 +362,16 @@ public class BookingService {
             }
 
             if (payment.isPaid()) {
-                // Payment succeeded but both webhook and redirect failed — confirm it now.
-                log.info("Cron: booking {} has a successful payment {} — confirming", bookingId, booking.getMoyasarPaymentId());
+                // Customer may have paid even if both redirect and webhook failed.
+                final String paymentId = payment.getId();
+                log.info("Cron: booking {} has a successful payment {} — confirming", bookingId, paymentId);
                 long expectedHalala = booking.getTotalAmount().multiply(BigDecimal.valueOf(100)).longValue();
-                if (payment.getAmount() != null && !payment.getAmount().equals(expectedHalala)) {
+                Long paidHalala = payment.getAmount();
+                if (paidHalala != null && !paidHalala.equals(expectedHalala)) {
                     log.error("Cron: amount mismatch for booking {} — skipping confirmation", bookingId);
                 } else {
                     transactionTemplate.execute(txStatus -> {
-                        // Re-select with FOR UPDATE to guard against concurrent changes.
-                        int rows = bookingRepository.confirmIfPending(bookingId, booking.getMoyasarPaymentId());
+                        int rows = bookingRepository.confirmIfPending(bookingId, paymentId);
                         if (rows == 1) {
                             seatRepository.confirmSeat(bookingId);
                             Booking confirmed = bookingRepository.findById(bookingId).orElseThrow();
@@ -449,9 +385,7 @@ public class BookingService {
             }
         }
 
-        // Payment not made (or no Moyasar ID yet) — cancel and free seats.
         transactionTemplate.execute(txStatus -> {
-            // Re-read inside the transaction to avoid TOCTOU.
             Booking fresh = bookingRepository.findById(bookingId).orElse(null);
             if (fresh == null || fresh.getStatus() != BookingStatus.PENDING) return null;
 
@@ -461,13 +395,6 @@ public class BookingService {
             return null;
         });
     }
-
-    // ── Cron: Reconcile stuck REFUND_PENDING bookings (every 5 minutes) ──────
-    // If the process died between a successful Moyasar refund and the final DB
-    // update, a booking is left stuck in REFUND_PENDING. We query Moyasar for the
-    // true payment state and either finish the cancellation (refunded) or revert
-    // the booking to CONFIRMED (not refunded).
-    // ─────────────────────────────────────────────────────────────────────────
 
     private static final int REFUND_PENDING_GRACE_MINUTES = 2;
 
@@ -487,7 +414,6 @@ public class BookingService {
     private void reconcileRefund(Booking booking) {
         String bookingId = booking.getId();
 
-        // No payment id on file: the booking was never charged, so just cancel & free seats.
         if (booking.getMoyasarPaymentId() == null) {
             log.warn("Reconcile: booking {} stuck in REFUND_PENDING with no Moyasar id — cancelling", bookingId);
             finalizeRefundCancellation(booking);
@@ -525,8 +451,6 @@ public class BookingService {
             return null;
         });
     }
-
-    // ── Exceptions ───────────────────────────────────────────────────────────
 
     public static class SeatUnavailableException extends RuntimeException {
         public SeatUnavailableException(String message) { super(message); }

@@ -1,11 +1,6 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <body>
-<!--
-  Seat grid fragment for the seat-map page.
-  Supports selecting multiple seats; each selected seat gets a hidden
-  input[name="seatNumbers"] appended by cinema-seats.js.
--->
 <div id="seat-area" th:fragment="seatArea(showtime, seatsByRow)">
     <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
         <a th:href="@{/showtimes/{id}(id=${showtime.id})}" class="btn">↻ Refresh availability</a>
@@ -16,7 +11,6 @@
     <form id="booking-form" th:action="@{/showtimes/{id}/book(id=${showtime.id})}" method="post">
         <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
 
-        <!-- Hidden seat inputs are injected here by cinema-seats.js -->
         <div id="seat-inputs"></div>
 
         <div id="seat-grid-container">
@@ -30,6 +24,39 @@
                         th:classappend="${seat.available ? 'seat-available' : 'seat-booked'}"
                         class="seat"
                         th:data-seat="${seat.seatNumber}">A1</button>
+            </div>
+        </div>
+
+        <div id="payment-card" class="payment-card">
+            <h3>Card details</h3>
+            <p class="payment-hint">Test card: 4111 1111 1111 1111 · any future expiry · CVC 911</p>
+            <div class="payment-field">
+                <label for="cardName">Name on card</label>
+                <input type="text" id="cardName" name="cardName" autocomplete="cc-name"
+                       placeholder="John Doe" value="John Doe" required/>
+            </div>
+            <div class="payment-field">
+                <label for="cardNumber">Card number</label>
+                <input type="text" id="cardNumber" name="cardNumber" autocomplete="cc-number"
+                       inputmode="numeric" placeholder="4111 1111 1111 1111"
+                       value="4111111111111111" required/>
+            </div>
+            <div class="payment-row">
+                <div class="payment-field">
+                    <label for="cardMonth">Month</label>
+                    <input type="number" id="cardMonth" name="cardMonth" min="1" max="12"
+                           placeholder="12" value="12" required/>
+                </div>
+                <div class="payment-field">
+                    <label for="cardYear">Year</label>
+                    <input type="number" id="cardYear" name="cardYear" min="2024" max="2099"
+                           placeholder="2026" value="2026" required/>
+                </div>
+                <div class="payment-field">
+                    <label for="cardCvc">CVC</label>
+                    <input type="text" id="cardCvc" name="cardCvc" autocomplete="cc-csc"
+                           inputmode="numeric" placeholder="911" value="911" required/>
+                </div>
             </div>
         </div>
 
