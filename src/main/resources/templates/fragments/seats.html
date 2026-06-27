@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--
+  Seat grid fragment for the seat-map page.
+  Supports selecting multiple seats; each selected seat gets a hidden
+  input[name="seatNumbers"] appended by cinema-seats.js.
+-->
+<div id="seat-area" th:fragment="seatArea(showtime, seatsByRow)">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <a th:href="@{/showtimes/{id}(id=${showtime.id})}" class="btn">↻ Refresh availability</a>
+    </div>
+
+    <div class="seat-map-screen">S C R E E N</div>
+
+    <form id="booking-form" th:action="@{/showtimes/{id}/book(id=${showtime.id})}" method="post">
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+
+        <!-- Hidden seat inputs are injected here by cinema-seats.js -->
+        <div id="seat-inputs"></div>
+
+        <div id="seat-grid-container">
+            <div th:each="entry : ${seatsByRow}" class="seat-row">
+                <span class="row-label" th:text="${entry.key}">A</span>
+                <button th:each="seat : ${entry.value}"
+                        type="button"
+                        th:id="'seat-' + ${seat.seatNumber}"
+                        th:text="${seat.seatNumber}"
+                        th:disabled="${!seat.available}"
+                        th:classappend="${seat.available ? 'seat-available' : 'seat-booked'}"
+                        class="seat"
+                        th:data-seat="${seat.seatNumber}">A1</button>
+            </div>
+        </div>
+
+        <div id="booking-summary" class="booking-summary">
+            <span>Selected: <strong id="selected-label">—</strong></span>
+            <span>
+                Total: <strong>SAR <span id="total-price">0</span></strong>
+                <span class="seat-count-note" id="seat-count-note"></span>
+            </span>
+            <button type="submit" id="submit-btn" class="btn-submit" disabled>Book &amp; Pay</button>
+        </div>
+    </form>
+</div>
+</body>
+</html>

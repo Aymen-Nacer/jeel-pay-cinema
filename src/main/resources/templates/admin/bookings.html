@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:replace="~{fragments/layout :: head('Admin – Bookings')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav-admin}"></nav>
+<main>
+    <h1>Manage Bookings</h1>
+
+    <div th:replace="~{fragments/layout :: alerts}"></div>
+
+    <form method="get" th:action="@{/admin/bookings}" class="filter-bar">
+        <div class="filter-group">
+            <label>Status</label>
+            <select name="status" class="select-input">
+                <option value="">All</option>
+                <option th:each="s : ${statuses}"
+                        th:value="${s.name()}"
+                        th:text="${s.name()}"
+                        th:selected="${s.name() == selectedStatus}">CONFIRMED</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Movie</label>
+            <select name="movieId" class="select-input">
+                <option value="">All</option>
+                <option th:each="m : ${movies}"
+                        th:value="${m.id}"
+                        th:text="${m.title}"
+                        th:selected="${m.id == selectedMovieId}">Movie</option>
+            </select>
+        </div>
+        <button type="submit" class="btn">Filter</button>
+        <a href="/admin/bookings" class="btn">Reset</a>
+        <span class="filter-count">
+            <span th:text="${totalBookings}">0</span> bookings
+        </span>
+    </form>
+
+    <div th:replace="~{fragments/admin-bookings :: results}"></div>
+</main>
+</body>
+</html>

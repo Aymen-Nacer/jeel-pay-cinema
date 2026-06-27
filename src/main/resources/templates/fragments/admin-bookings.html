@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--
+  Admin bookings results fragment, included in the full page.
+-->
+<div id="booking-results" th:fragment="results">
+    <div class="card">
+        <table>
+            <thead>
+            <tr>
+                <th>#</th>
+                <th>Customer</th>
+                <th>Movie</th>
+                <th>Showtime</th>
+                <th>Hall</th>
+                <th>Seat</th>
+                <th>Status</th>
+                <th>Price</th>
+                <th>Action</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:if="${bookings.empty}">
+                <td colspan="9" style="text-align:center;color:#8b949e;padding:32px">No bookings found.</td>
+            </tr>
+            <tr th:each="b : ${bookings}">
+                <td th:text="${b.id}">#</td>
+                <td th:text="${b.userEmail}">user@mail.com</td>
+                <td th:text="${b.movieTitle}">Movie</td>
+                <td th:text="${#temporals.format(b.showtimeStart, 'EEE MMM d HH:mm')}">Fri 20:00</td>
+                <td th:text="${b.hallName}">Hall 1</td>
+                <td th:text="${b.seatNumber}">A1</td>
+                <td>
+                    <span th:text="${b.status}"
+                          th:classappend="${b.status.name() == 'CONFIRMED'              ? ' badge-confirmed'  :
+                                           b.status.name() == 'PENDING'                ? ' badge-pending'    :
+                                           b.status.name() == 'REFUND_PENDING'         ? ' badge-pending'    :
+                                           b.status.name() == 'CANCELLED'              ? ' badge-cancelled'  :
+                                           b.status.name() == 'REFUNDED_LATE_PAYMENT'  ? ' badge-cancelled'  : ' badge-cancelled'}"
+                          class="badge">CONFIRMED</span>
+                </td>
+                <td>SAR <span th:text="${b.totalAmount}">45</span></td>
+                <td>
+                    <form th:if="${b.status.name() == 'CONFIRMED'}"
+                          th:action="@{/admin/bookings/{id}/cancel(id=${b.id})}"
+                          method="post"
+                          onsubmit="return confirm('Cancel booking #' + /*[[${b.id}]]*/ '?' + ' This will refund the customer.')">
+                        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+                        <button type="submit" class="btn-danger">Cancel</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination" th:if="${totalPages > 1}">
+        <a th:href="@{/admin/bookings(status=${selectedStatus},movieId=${selectedMovieId},page=${currentPage - 1})}"
+           class="page-btn"
+           th:style="${currentPage == 0 ? 'pointer-events:none;opacity:.4' : ''}">&larr; Prev</a>
+
+        <span style="color:#8b949e;font-size:.875rem">
+            Page <strong th:text="${currentPage + 1}">1</strong> of <strong th:text="${totalPages}">1</strong>
+        </span>
+
+        <a th:href="@{/admin/bookings(status=${selectedStatus},movieId=${selectedMovieId},page=${currentPage + 1})}"
+           class="page-btn"
+           th:style="${currentPage + 1 >= totalPages ? 'pointer-events:none;opacity:.4' : ''}">Next &rarr;</a>
+    </div>
+</div>
+</body>
+</html>

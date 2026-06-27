@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Create account')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav-auth('/login', 'Log in', 'btn')}"></nav>
+<main>
+    <div class="auth-card-wrapper">
+        <div class="card">
+            <div class="card-body">
+                <h2>Create your account</h2>
+
+                <div th:if="${error}" class="alert alert-danger" th:text="${error}"></div>
+
+                <form th:action="@{/register}" method="post" th:object="${form}">
+                    <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <input id="email" type="email" th:field="*{email}" placeholder="you@example.com" required/>
+                        <span th:if="${#fields.hasErrors('email')}" th:errors="*{email}"
+                              class="field-error"></span>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password <span class="field-hint">(min 8 chars)</span></label>
+                        <input id="password" type="password" th:field="*{password}" placeholder="At least 8 characters" required/>
+                        <span th:if="${#fields.hasErrors('password')}" th:errors="*{password}"
+                              class="field-error"></span>
+                    </div>
+                    <button type="submit" class="btn-submit btn-full">Register</button>
+                </form>
+
+                <p class="auth-switch">
+                    Already have an account? <a href="/login">Log in</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<!-- ── <head> ──────────────────────────────────────────────────── -->
+<head th:fragment="head(title)">
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title th:text="${title} + ' – Jeel Pay Cinema'">Jeel Pay Cinema</title>
+    <link rel="stylesheet" th:href="@{/css/cinema.css}"/>
+</head>
+
+<!-- ── Standard user nav ────────────────────────────────────────── -->
+<nav th:fragment="nav">
+    <span class="brand"><a href="/">🎬 Jeel Pay Cinema</a></span>
+    <span sec:authorize="isAuthenticated()"
+          th:text="${#authentication.name}"
+          class="nav-username"></span>
+    <a sec:authorize="hasRole('ADMIN')" href="/admin/bookings" class="btn">Admin</a>
+    <a sec:authorize="isAuthenticated()" href="/my-bookings" class="btn">My Bookings</a>
+    <form sec:authorize="isAuthenticated()" th:action="@{/logout}" method="post">
+        <button class="btn" type="submit">Log out</button>
+    </form>
+    <a sec:authorize="!isAuthenticated()" href="/login" class="btn">Log in</a>
+    <a sec:authorize="!isAuthenticated()" href="/register" class="btn btn-primary">Register</a>
+</nav>
+
+<!-- ── Admin nav ─────────────────────────────────────────────────── -->
+<nav th:fragment="nav-admin">
+    <span class="brand"><a href="/">🎬 Jeel Pay Cinema</a></span>
+    <span class="nav-badge-admin">ADMIN</span>
+    <a href="/" class="btn">Movies</a>
+    <form th:action="@{/logout}" method="post">
+        <button class="btn" type="submit">Log out</button>
+    </form>
+</nav>
+
+<!-- ── Minimal auth nav (login / register pages) ─────────────────── -->
+<nav th:fragment="nav-auth(linkHref, linkLabel, linkClass)">
+    <span class="brand"><a href="/">🎬 Jeel Pay Cinema</a></span>
+    <a th:href="${linkHref}" th:text="${linkLabel}" th:class="${linkClass}">Log in</a>
+</nav>
+
+<!-- ── Flash alerts fragment ─────────────────────────────────────── -->
+<div th:fragment="alerts">
+    <div th:if="${success}" class="alert alert-success" th:text="${success}"></div>
+    <div th:if="${error}"   class="alert alert-danger"  th:text="${error}"></div>
+</div>
+
+</html>

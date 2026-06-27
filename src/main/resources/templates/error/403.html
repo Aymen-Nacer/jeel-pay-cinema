@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Access Denied')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav-auth('/', 'Home', 'btn')}"></nav>
+<main class="error-page">
+    <h1 class="error-code error-code--danger">403</h1>
+    <h2>Access Denied</h2>
+    <p class="error-message">You don't have permission to view this page.</p>
+    <a href="/" class="btn-submit btn-inline">Go Home</a>
+</main>
+</body>
+</html>

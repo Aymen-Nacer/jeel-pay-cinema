@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:replace="~{fragments/layout :: head(${movie.title})}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+<main>
+    <p><a href="/">&larr; Back to movies</a></p>
+
+    <div class="movie-detail-layout">
+        <img th:src="${movie.posterUrl}" th:alt="${movie.title}"
+             class="movie-detail-poster"
+             onerror="this.src='https://via.placeholder.com/220x330?text=No+Image'"/>
+        <div class="movie-detail-info">
+            <h1 class="movie-detail-title" th:text="${movie.title}">Title</h1>
+            <p class="movie-detail-meta">
+                <span th:text="${movie.releaseYear}">2024</span>
+                &nbsp;&bull;&nbsp;
+                <span th:text="${movie.genres}">Action</span>
+                &nbsp;&bull;&nbsp;
+                <span th:text="${movie.runtimeMinutes} + ' min'">120 min</span>
+                &nbsp;&bull;&nbsp;
+                &#9733; <span th:text="${movie.rating}">8.0</span>
+            </p>
+            <p class="movie-detail-synopsis" th:text="${movie.synopsis}">Synopsis</p>
+
+            <h2>Showtimes</h2>
+            <div th:if="${showtimes.empty}" class="no-showtimes">No showtimes scheduled.</div>
+            <div class="showtime-grid">
+                <div th:each="st : ${showtimes}" class="showtime-card">
+                    <div class="showtime-time"
+                         th:text="${#temporals.format(st.startTime, 'EEE HH:mm')}">Fri 20:00</div>
+                    <div class="showtime-meta">
+                        <span th:text="${st.hallName}">Hall 1</span>
+                        &nbsp;&bull;&nbsp;
+                        <span th:text="${st.availableSeats} + ' seats available'">32 seats available</span>
+                        &nbsp;&bull;&nbsp;
+                        SAR <span th:text="${st.price}">45.00</span>
+                    </div>
+                    <a th:href="@{/showtimes/{id}(id=${st.id})}"
+                       class="btn btn-primary showtime-book-btn">Book</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+</body>
+</html>

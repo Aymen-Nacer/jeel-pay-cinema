@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Not Found')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav-auth('/', 'Home', 'btn')}"></nav>
+<main class="error-page">
+    <h1 class="error-code">404</h1>
+    <h2>Page Not Found</h2>
+    <p class="error-message">The page you're looking for doesn't exist.</p>
+    <a href="/" class="btn-submit btn-inline">Go Home</a>
+</main>
+</body>
+</html>

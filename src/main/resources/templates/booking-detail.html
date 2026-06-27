@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:replace="~{fragments/layout :: head('Booking Detail')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+<main>
+    <p><a href="/my-bookings">&larr; My Bookings</a></p>
+    <h1>Booking <span th:text="${booking.id}"></span></h1>
+
+    <div class="card booking-detail-card">
+        <div class="card-body">
+            <table class="detail-table">
+                <tr>
+                    <td class="detail-label">Movie</td>
+                    <td th:text="${booking.movieTitle}">Title</td>
+                </tr>
+                <tr>
+                    <td class="detail-label">Showtime</td>
+                    <td th:text="${#temporals.format(booking.showtimeStart, 'EEE, MMM d yyyy HH:mm')}">Fri 20:00</td>
+                </tr>
+                <tr>
+                    <td class="detail-label">Hall</td>
+                    <td th:text="${booking.hallName}">Hall 1</td>
+                </tr>
+                <tr>
+                    <td class="detail-label" th:text="${booking.seatCount > 1 ? 'Seats' : 'Seat'}">Seat</td>
+                    <td th:text="${booking.seatNumber}">A1</td>
+                </tr>
+                <tr th:if="${booking.seatCount > 1}">
+                    <td class="detail-label">Seats booked</td>
+                    <td th:text="${booking.seatCount}">1</td>
+                </tr>
+                <tr>
+                    <td class="detail-label">Status</td>
+                    <td>
+                        <span th:text="${booking.status}"
+                              th:classappend="${booking.status.name() == 'CONFIRMED'             ? ' badge-confirmed'  :
+                                               booking.status.name() == 'PENDING'               ? ' badge-pending'    :
+                                               booking.status.name() == 'REFUND_PENDING'        ? ' badge-pending'    :
+                                               booking.status.name() == 'CANCELLED'             ? ' badge-cancelled'  :
+                                               booking.status.name() == 'REFUNDED_LATE_PAYMENT' ? ' badge-cancelled'  : ' badge-cancelled'}"
+                              class="badge">CONFIRMED</span>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="detail-label">Amount</td>
+                    <td>SAR <span th:text="${booking.totalAmount}">45.00</span></td>
+                </tr>
+                <tr>
+                    <td class="detail-label">Booked on</td>
+                    <td th:text="${#temporals.format(booking.createdAt, 'MMM d yyyy HH:mm')}">Jun 26 2026</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:replace="~{fragments/layout :: head('Select Seat')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+<main>
+    <p><a th:href="@{/movies/{id}(id=${showtime.movieId})}">&larr; Back to movie</a></p>
+
+    <div th:replace="~{fragments/layout :: alerts}"></div>
+
+    <div class="seat-info-bar">
+        <div class="info-item"><strong th:text="${showtime.movieTitle}">Movie</strong></div>
+        <div class="info-item">
+            <strong th:text="${#temporals.format(showtime.startTime, 'EEE, MMM d · HH:mm')}">Fri, Jun 26 · 20:00</strong>
+        </div>
+        <div class="info-item">Hall: <strong th:text="${showtime.hallName}">Hall 1</strong></div>
+        <div class="info-item">
+            Price: <strong>SAR <span th:text="${showtime.price}">45</span></strong>
+        </div>
+        <div class="info-item">
+            Available: <strong th:text="${showtime.availableSeats}">32</strong>
+        </div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-dot seat-available"></div> Available
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot legend-dot--taken"></div> Taken
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot legend-dot--selected"></div> Selected
+        </div>
+    </div>
+
+    <!-- Countdown: seats become unavailable after the hold window expires -->
+    <div id="seat-hold-timer" class="seat-hold-timer" style="display:none">
+        ⏱ Session expires in <strong id="hold-countdown">15:00</strong>
+    </div>
+
+    <div class="seat-map-wrapper">
+        <div th:replace="~{fragments/seats :: seatArea(${showtime}, ${seatsByRow})}"></div>
+    </div>
+</main>
+
+<script th:inline="javascript">
+    const SEAT_PRICE   = [[${showtime.price}]];
+    const HOLD_MINUTES = [[${holdMinutes}]];
+</script>
+<script th:src="@{/js/cinema-seats.js}"></script>
+</body>
+</html>

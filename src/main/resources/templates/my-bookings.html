@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:replace="~{fragments/layout :: head('My Bookings')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+<main>
+    <h1>My Bookings</h1>
+
+    <div th:replace="~{fragments/layout :: alerts}"></div>
+
+    <div th:if="${bookings.empty}" class="empty-state">
+        You have no bookings yet. <a href="/">Browse movies</a>
+    </div>
+
+    <div th:if="${!bookings.empty}" class="card">
+        <table>
+            <thead>
+            <tr>
+                <th>#</th>
+                <th>Movie</th>
+                <th>Showtime</th>
+                <th>Hall</th>
+                <th>Seat</th>
+                <th>Status</th>
+                <th>Price</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="b : ${bookings}">
+                <td th:text="${b.id}">#</td>
+                <td>
+                    <a th:href="@{/bookings/{id}(id=${b.id})}" th:text="${b.movieTitle}">Movie</a>
+                </td>
+                <td th:text="${#temporals.format(b.showtimeStart, 'EEE, MMM d HH:mm')}">Fri 20:00</td>
+                <td th:text="${b.hallName}">Hall 1</td>
+                <td th:text="${b.seatNumber}">A1</td>
+                <td>
+                    <span th:text="${b.status}"
+                          th:classappend="${b.status.name() == 'CONFIRMED'              ? ' badge-confirmed'  :
+                                           b.status.name() == 'PENDING'                ? ' badge-pending'    :
+                                           b.status.name() == 'REFUND_PENDING'         ? ' badge-pending'    :
+                                           b.status.name() == 'CANCELLED'              ? ' badge-cancelled'  :
+                                           b.status.name() == 'REFUNDED_LATE_PAYMENT'  ? ' badge-cancelled'  : ' badge-cancelled'}"
+                          class="badge">CONFIRMED</span>
+                </td>
+                <td>SAR <span th:text="${b.totalAmount}">45.00</span></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</main>
+</body>
+</html>

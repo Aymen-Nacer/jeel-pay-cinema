@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:replace="~{fragments/layout :: head('Now Showing')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+<main>
+    <h1>Now Showing</h1>
+
+    <div th:replace="~{fragments/layout :: alerts}"></div>
+
+    <div class="movie-grid">
+        <a th:each="movie : ${movies}"
+           th:href="@{/movies/{id}(id=${movie.id})}"
+           class="movie-card">
+            <img th:src="${movie.posterUrl}" th:alt="${movie.title}"
+                 onerror="this.src='https://via.placeholder.com/180x270?text=No+Image'"/>
+            <div class="movie-card-body">
+                <p class="movie-card-title" th:text="${movie.title}">Title</p>
+                <p class="movie-meta">
+                    <span th:text="${movie.releaseYear}">2024</span>
+                    &nbsp;&#9733;&nbsp;<span th:text="${movie.rating}">8.0</span>
+                </p>
+            </div>
+        </a>
+    </div>
+</main>
+</body>
+</html>
