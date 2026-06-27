@@ -56,7 +56,6 @@ public class AuthController {
         try {
             var user = userService.register(form.getEmail(), form.getPassword());
 
-            // Auto-login after registration
             var auth = new UsernamePasswordAuthenticationToken(
                     user.getEmail(),
                     null,

@@ -10,7 +10,6 @@ public class Showtime {
     private LocalDateTime startTime;
     private BigDecimal price;
 
-    // Joined fields for display
     private String movieTitle;
     private String hallName;
     private int availableSeats;

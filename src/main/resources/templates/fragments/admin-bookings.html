@@ -1,9 +1,6 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <body>
-<!--
-  Admin bookings results fragment, included in the full page.
--->
 <div id="booking-results" th:fragment="results">
     <div class="card">
         <table>
@@ -55,7 +52,6 @@
         </table>
     </div>
 
-    <!-- Pagination -->
     <div class="pagination" th:if="${totalPages > 1}">
         <a th:href="@{/admin/bookings(status=${selectedStatus},movieId=${selectedMovieId},page=${currentPage - 1})}"
            class="page-btn"

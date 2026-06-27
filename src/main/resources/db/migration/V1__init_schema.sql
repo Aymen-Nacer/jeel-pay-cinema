@@ -1,15 +1,3 @@
--- V1: Complete initial schema — all tables in their final form.
---
--- Design notes:
---   * bookings.id is a client-generated UUID (VARCHAR 36) so the service layer
---     can create a deterministic booking reference before touching the DB.
---   * booking_seats junction table supports multi-seat bookings.
---   * showtime_seats carries per-screening seat state; the physical catalog lives
---     in the seats table (shared across all showtimes for a hall).
---   * bookings.seat_id is nullable and kept as a denormalised pointer to the first
---     seat; new code always uses booking_seats.
---   * updated_at is maintained automatically by MySQL for REFUND_PENDING reconciliation.
-
 CREATE TABLE users (
     id            BIGINT AUTO_INCREMENT PRIMARY KEY,
     email         VARCHAR(255) NOT NULL UNIQUE,
@@ -91,7 +79,6 @@ CREATE TABLE showtime_seats (
     seat_id     BIGINT      NOT NULL,
     status      VARCHAR(50) NOT NULL DEFAULT 'AVAILABLE',
     booking_id  VARCHAR(36),
-    version     INT         NOT NULL DEFAULT 0,
     UNIQUE KEY uk_showtime_seat (showtime_id, seat_id),
     FOREIGN KEY (showtime_id) REFERENCES showtimes(id),
     FOREIGN KEY (seat_id)     REFERENCES seats(id),

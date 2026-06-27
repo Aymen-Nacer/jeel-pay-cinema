@@ -23,16 +23,14 @@ public class ShowtimeSeatRepository {
         s.setSeatId(rs.getLong("seat_id"));
         s.setStatus(SeatStatus.valueOf(rs.getString("status")));
         s.setBookingId(rs.getString("booking_id"));
-        s.setVersion(rs.getInt("version"));
         s.setRowLabel(rs.getString("row_label"));
         s.setSeatColumn(rs.getInt("seat_number"));
         s.setSeatType(SeatType.valueOf(rs.getString("seat_type")));
         return s;
     };
 
-    /** Selects per-showtime state joined with the physical seat catalog. */
     private static final String SELECT_WITH_SEAT = """
-            SELECT ss.id, ss.showtime_id, ss.seat_id, ss.status, ss.booking_id, ss.version,
+            SELECT ss.id, ss.showtime_id, ss.seat_id, ss.status, ss.booking_id,
                    s.row_label, s.seat_number, s.seat_type
             FROM showtime_seats ss
             JOIN seats s ON ss.seat_id = s.id
@@ -49,11 +47,6 @@ public class ShowtimeSeatRepository {
                 params, ROW_MAPPER);
     }
 
-    /**
-     * Acquire a pessimistic write lock on the showtime_seat row for the given seat label
-     * (e.g. "A1") within the current transaction. NOWAIT means concurrent requests fail
-     * fast rather than queuing.
-     */
     public Optional<ShowtimeSeat> lockForUpdate(Long showtimeId, String seatNumber) {
         var params = new MapSqlParameterSource()
                 .addValue("showtimeId", showtimeId)
@@ -67,10 +60,7 @@ public class ShowtimeSeatRepository {
         return list.stream().findFirst();
     }
 
-    /**
-     * Acquire pessimistic write locks on multiple seat rows at once for the given seat labels.
-     * Locks are acquired in a single query to avoid deadlock risk from ordering.
-     */
+    // Single query locks all seats at once to avoid deadlock from inconsistent lock ordering.
     public List<ShowtimeSeat> lockMultipleForUpdate(Long showtimeId, List<String> seatNumbers) {
         var params = new MapSqlParameterSource()
                 .addValue("showtimeId", showtimeId)
@@ -90,18 +80,17 @@ public class ShowtimeSeatRepository {
                 .addValue("bookingId", bookingId)
                 .addValue("status", SeatStatus.HELD.name());
         jdbc.update(
-                "UPDATE showtime_seats SET status = :status, booking_id = :bookingId, version = version + 1 WHERE id = :id",
+                "UPDATE showtime_seats SET status = :status, booking_id = :bookingId WHERE id = :id",
                 params);
     }
 
-    /** Hold all given showtime_seat rows in a single UPDATE. */
     public void holdSeats(List<Long> showTimeSeatIds, String bookingId) {
         var params = new MapSqlParameterSource()
                 .addValue("ids", showTimeSeatIds)
                 .addValue("bookingId", bookingId)
                 .addValue("status", SeatStatus.HELD.name());
         jdbc.update(
-                "UPDATE showtime_seats SET status = :status, booking_id = :bookingId, version = version + 1 WHERE id IN (:ids)",
+                "UPDATE showtime_seats SET status = :status, booking_id = :bookingId WHERE id IN (:ids)",
                 params);
     }
 
@@ -110,7 +99,7 @@ public class ShowtimeSeatRepository {
                 .addValue("bookingId", bookingId)
                 .addValue("status", SeatStatus.BOOKED.name());
         jdbc.update(
-                "UPDATE showtime_seats SET status = :status, version = version + 1 WHERE booking_id = :bookingId",
+                "UPDATE showtime_seats SET status = :status WHERE booking_id = :bookingId",
                 params);
     }
 
@@ -119,7 +108,7 @@ public class ShowtimeSeatRepository {
                 .addValue("bookingId", bookingId)
                 .addValue("status", SeatStatus.AVAILABLE.name());
         jdbc.update(
-                "UPDATE showtime_seats SET status = :status, booking_id = NULL, version = version + 1 WHERE booking_id = :bookingId",
+                "UPDATE showtime_seats SET status = :status, booking_id = NULL WHERE booking_id = :bookingId",
                 params);
     }
 }

@@ -1,15 +1,3 @@
-/**
- * cinema-seats.js
- *
- * Multi-seat selection on the seat-map page.
- * Click an available seat to toggle its selection.
- * The booking summary updates live with a count and total price.
- * On submit, one hidden input[name="seatNumbers"] per selected seat is injected.
- *
- * Also runs a countdown timer: once the page loads, the user has HOLD_MINUTES
- * (injected by Thymeleaf) to submit the form before it is locked.  This mirrors
- * the server-side cron that cancels PENDING bookings after the same window.
- */
 document.addEventListener('DOMContentLoaded', () => {
     const grid       = document.getElementById('seat-grid-container');
     const inputsDiv  = document.getElementById('seat-inputs');
@@ -22,14 +10,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!grid) return;
 
-    // SEAT_PRICE and HOLD_MINUTES are injected by the Thymeleaf template.
     const pricePerSeat = typeof SEAT_PRICE   !== 'undefined' ? parseFloat(SEAT_PRICE) : 0;
     const holdMinutes  = typeof HOLD_MINUTES !== 'undefined' ? parseInt(HOLD_MINUTES, 10) : 15;
 
     const selected = new Set();
     let sessionExpired = false;
-
-    // ── Countdown timer ───────────────────────────────────────────────────────
 
     const timerEl     = document.getElementById('seat-hold-timer');
     const countdownEl = document.getElementById('hold-countdown');
@@ -55,7 +40,6 @@ document.addEventListener('DOMContentLoaded', () => {
             countdownEl.textContent =
                 String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
 
-            // Warn when less than 2 minutes remain.
             if (remaining < 120_000) {
                 timerEl.classList.add('seat-hold-timer--warning');
             }
@@ -63,16 +47,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function lockExpiredSession() {
-        // Disable all seat buttons.
         grid.querySelectorAll('button.seat').forEach(btn => { btn.disabled = true; });
-        // Disable the submit button and show a message.
         if (submitBtn) submitBtn.disabled = true;
         if (timerEl) {
             timerEl.innerHTML = '⚠ Session expired. Please <a href="">refresh the page</a> to start over.';
         }
     }
-
-    // ── Seat selection ────────────────────────────────────────────────────────
 
     grid.addEventListener('click', (event) => {
         if (sessionExpired) return;
@@ -112,14 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Before the form submits, inject one hidden input per selected seat.
     form.addEventListener('submit', (event) => {
         if (sessionExpired) {
             event.preventDefault();
             return;
         }
 
-        // Clear any previously injected inputs.
         inputsDiv.innerHTML = '';
 
         if (selected.size === 0) {

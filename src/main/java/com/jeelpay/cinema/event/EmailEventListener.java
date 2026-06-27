@@ -1,7 +1,6 @@
 package com.jeelpay.cinema.event;
 
 import com.jeelpay.cinema.service.EmailService;
-import com.jeelpay.cinema.event.BookingRefundedLateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -9,20 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-/**
- * Dispatches transactional emails after the DB transaction commits.
- *
- * Each handler is annotated with both:
- *   {@code @TransactionalEventListener(AFTER_COMMIT)} — fires only after the
- *       business transaction is durable, so emails are never sent for rolled-back
- *       operations, and email failures cannot roll back the business transaction.
- *   {@code @Async} — executes in a Spring-managed async thread pool so the HTTP
- *       request thread is never blocked waiting for the email to send.
- *
- * For this to work the calling transaction must have already committed before the
- * async thread starts, which is exactly what AFTER_COMMIT guarantees. Spring
- * correctly sequences the async dispatch to happen post-commit.
- */
+// AFTER_COMMIT: email failures must not roll back the booking transaction.
 @Component
 public class EmailEventListener {
 

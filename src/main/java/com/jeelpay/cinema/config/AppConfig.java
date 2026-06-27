@@ -28,10 +28,6 @@ public class AppConfig implements AsyncConfigurer {
         return new TransactionTemplate(txManager);
     }
 
-    /**
-     * Dedicated thread pool for {@code @Async} tasks (primarily email dispatch).
-     * Kept small because email sending is I/O-bound; the threads idle between sends.
-     */
     @Override
     @Bean(name = "taskExecutor")
     public Executor getAsyncExecutor() {
@@ -44,9 +40,6 @@ public class AppConfig implements AsyncConfigurer {
         return executor;
     }
 
-    /**
-     * Log unhandled exceptions from {@code @Async} methods so they are never silently swallowed.
-     */
     @Override
     public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
         return (ex, method, params) ->

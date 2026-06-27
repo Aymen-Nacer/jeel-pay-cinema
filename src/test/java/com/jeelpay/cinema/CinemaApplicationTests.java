@@ -6,6 +6,5 @@ class CinemaApplicationTests extends AbstractIntegrationTest {
 
     @Test
     void contextLoads() {
-        // Verifies the Spring context starts successfully with Testcontainer MySQL
     }
 }

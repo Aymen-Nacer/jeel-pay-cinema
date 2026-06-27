@@ -25,11 +25,6 @@ public class ReminderService {
         this.emailService = emailService;
     }
 
-    /**
-     * Runs every day at 09:00 Asia/Riyadh.
-     * Idempotent: each booking is reminded at most once (reminder_sent flag).
-     * The flag is set BEFORE sending the email so that repeated scheduler runs do not re-send.
-     */
     @Scheduled(cron = "0 0 9 * * *", zone = "Asia/Riyadh")
     public void sendDayOfReminders() {
         LocalDate today = LocalDate.now(RIYADH);
@@ -40,8 +35,7 @@ public class ReminderService {
 
         for (Booking booking : due) {
             try {
-                // Mark reminder_sent = true FIRST to ensure idempotency even if the app
-                // restarts mid-run or the job overlaps on multiple instances.
+                // Mark sent before emailing so overlapping scheduler runs stay idempotent.
                 bookingRepository.markReminderSent(booking.getId());
                 emailService.sendReminder(booking);
                 log.info("Reminder sent for booking {}", booking.getId());

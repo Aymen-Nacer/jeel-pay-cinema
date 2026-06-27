@@ -16,8 +16,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            // The Moyasar webhook is a server-to-server POST that cannot carry a CSRF token.
-            // It is authenticated instead by the shared secret_token in its payload.
+            // Server-to-server webhook cannot carry a CSRF token; authenticated via secret_token instead.
             .csrf(csrf -> csrf.ignoringRequestMatchers("/webhooks/**"))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/", "/movies/**", "/register", "/login",

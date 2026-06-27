@@ -1,9 +1,3 @@
--- V2: Spring Session JDBC tables.
---
--- Spring Session stores HTTP sessions in MySQL so sessions survive restarts
--- and are shared across instances. Tables match the schema expected by
--- spring-session-jdbc with the default SPRING_SESSION table name.
-
 CREATE TABLE SPRING_SESSION (
     PRIMARY_ID           CHAR(36)     NOT NULL,
     SESSION_ID           CHAR(36)     NOT NULL,

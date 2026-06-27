@@ -9,10 +9,6 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
-/**
- * Access to the physical seat catalog (one row per seat per hall, shared by
- * every showtime in that hall).
- */
 @Repository
 public class SeatRepository {
 

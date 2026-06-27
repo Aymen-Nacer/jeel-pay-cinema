@@ -44,7 +44,6 @@ public class AdminController {
         long total = bookingService.countAll(statusEnum, movieId);
         int totalPages = Math.max(1, (int) Math.ceil((double) total / PAGE_SIZE));
 
-        // Clamp the requested page into [0, totalPages - 1] so manual URL tampering is safe.
         if (page < 0) page = 0;
         if (page >= totalPages) page = totalPages - 1;
 
